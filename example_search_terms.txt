@@ -1,0 +1,10 @@
+Distributed Task Allocation in Urban Air Mobility
+Data & Reasoning Fabric (DRF) in aviation
+Consensus Based Bundle Algorithm (CBBA) for multi-agent systems
+Decentralized task allocation in UAVs
+Multi-agent systems for smart city integration
+Advantages and limitations of CBBA in drone networks
+Urban Air Mobility task consensus algorithms
+Multi-agent migration in UAM ecosystems
+Phoenix Demo: Responding to node dropout in UAM
+Optimization and Machine Learning in distributed agent systems
