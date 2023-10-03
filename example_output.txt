@@ -1,0 +1,233 @@
+Slide 1: Distributed Task Allocation for Multi-agent Urban Air Mobility
+Slide 1: Jim Ecker
+Langley/Ames DRF Reasoning Team
+Slide 1: 3/24/23
+Slide 1: Distributed Task Allocation for Multi-agent UAM
+Slide 1: 1
+Slide 2: Data & Reasoning Fabric (DRF)
+Slide 2: 3/24/23
+Slide 2: Distributed Task Allocation for Multi-agent UAM
+Slide 2: 2
+Slide 2: DRF’s vision is to provide seamless access both to services offering DATA and to tools for REASONING over decisions based on that data. The intent is to form a connected, interwoven “FABRIC” of intelligence that sends aircraft specific, tailored information wherever they are
+Slide 2: DRF envisions a digital “marketplace” where providers like weather services, mapping and surveying firms, air traffic management, and others can offer their data and reasoning services to aircraft operators via digital agreements. In turn, operators can also offer the data and reasoning they have acquired.
+Slide 3: DRF Architecture
+Slide 3: 3/24/23
+Slide 3: Distributed Task Allocation for Multi-agent UAM
+Slide 3: 3
+Slide 4: Task Allocation as a Service
+Slide 4: Multi-agent fleet operating in smart city environment
+Offers fleet-wide task coordination over shared mission
+Leverages data and services provided through DRF marketplace
+Slide 4: 3/24/23
+Slide 4: Distributed Task Allocation for Multi-agent UAM
+Slide 4: 4
+Slide 4: 
+Slide 4: 
+Slide 5: Consensus Based Bundle Algorithm (CBBA)
+Slide 5: Multi-Agent Systems: Collection of autonomous agents interacting to achieve specific goals
+Decentralized Task Allocation: Distributing tasks among agents without central control
+CBBA: Decentralized, cooperative algorithm for efficient task assignment in multi-robot systems
+Key Components: Initialization, Bidding, Winner Determination, Consensus, and Termination
+
+Slide 5: 3/24/23
+Slide 5: Distributed Task Allocation for Multi-agent UAM
+Slide 5: 5
+Slide 6: Advantages and Limitations of CBBA
+Slide 6: Advantages
+Scalability
+Handles large-scale systems with many agents and tasks
+Adaptability
+Adapts to changes in task list or agent capabilities
+Robustness
+Tolerates communication failures/delays
+Slide 6: Limitations
+Common Understanding
+Requires agents to share a common understanding of tasks and costs
+Global optimality not guaranteed
+Cost Function Engineering
+Determining the best cost function for each specific application can be challenging
+Slide 6: 3/24/23
+Slide 6: Distributed Task Allocation for Multi-agent UAM
+Slide 6: 6
+Slide 7: 
+Slide 7: Initialization – Task List
+Slide 7: Contains all the tasks that need to be assigned among the agents
+Central reference for agents to calculate bids
+Typically consists of associated attributes like location, duration, priority, resource requirements
+TaskList = {    T1 = Task(        location = (20.334, -123.45),        duration= 120,         priority  = Priority.High,    ), # /T1    T2 = Task(        location = ((20.322, -123.433),(20.328,-123.455)),        duration= 1800,        priority. = Priority.Med,    ), # /T2} # /TaskList
+Slide 7: 3/24/23
+Slide 7: Distributed Task Allocation for Multi-agent UAM
+Slide 7: 7
+Slide 8: 
+Slide 8: Initialization – Bid List
+Slide 8: Contains calculated values for each task in the task list
+Record of the agent’s bids for all available tasks
+Based on specific cost function
+BidList = {	TaskList.T1 : agent.cost(TaskList.T1),	TaskList.T2 : agent.cost(TaskList.T1),} # /BidList
+Slide 8: 3/24/23
+Slide 8: Distributed Task Allocation for Multi-agent UAM
+Slide 8: 8
+Slide 9: 
+Slide 9: Collection of tasks assigned to the agent
+Assignment is accomplished through consensus with other agents in the system
+Agents update their bundles by adding or removing tasks according to information exchanged with other agents
+Goal is to reach optimal distribution of tasks among all agents
+agent.bundle = [TaskList.T1, TaskList.T3]
+Slide 9: Bidding and Winner Determination - Bundle
+Slide 9: Agents calculate task costs: Based on factors like time, distance, or energy consumption
+Bid lists: Agents record their calculated costs for each task
+Task assignment: Agents select tasks with the lowest bids
+Bundle update: Agents add assigned tasks to their bundles and share information with other agents
+
+Slide 9: 3/24/23
+Slide 9: Distributed Task Allocation for Multi-agent UAM
+Slide 9: 9
+Slide 10: Consensus and Termination
+Slide 10: Information exchange: Agents share their bid lists and bundles with other agents
+Bundle adjustments: Based on new information, agents may add or remove tasks from their bundles
+Consensus: Agents reach an agreement on task assignment, minimizing conflicts and overlaps
+Termination conditions: Algorithm stops when no changes occur in bundles or a predetermined number of iterations have been completed
+Slide 10: 3/24/23
+Slide 10: Distributed Task Allocation for Multi-agent UAM
+Slide 10: 10
+Slide 11: Use-cases Developed
+Slide 11: Fire detection
+Data Migration
+Slide 11: 3/24/23
+Slide 11: Distributed Task Allocation for Multi-agent UAM
+Slide 11: 11
+Slide 12: Fire Detection after Lightning Strikes
+Slide 12: Heterogenous multi-agent network performing loitering and observation tasks
+Slide 12: New lightning strike is detected outside of network’s sensor coverage
+Slide 12: Network agents detect new task (Check for fire in strike area) and come to consensus on which agent performs new task
+Slide 12: Task allocation system monitors data sources and generates new tasks based on events
+
+The multi-agent system can negotiate which agent performs the task through market-based auctioneering algorithm
+
+Slide 13: Scenario Configuration
+Slide 13: 3/24/23
+Slide 13: Distributed Task Allocation for Multi-agent UAM
+Slide 13: 13
+Slide 14: Task Consensus
+Slide 14: 3/24/23
+Slide 14: Distributed Task Allocation for Multi-agent UAM
+Slide 14: 14
+Slide 15: Single Agent Migration
+Slide 15: Distributed Task Allocation for Multi-agent UAM
+Slide 15: 
+Slide 15: 3/24/23
+Slide 15: 15
+Slide 16: Single Agent Migration
+Slide 16: Distributed Task Allocation for Multi-agent UAM
+Slide 16: 
+Slide 16: 3/24/23
+Slide 16: 16
+Slide 17: Single Agent Migration
+Slide 17: Distributed Task Allocation for Multi-agent UAM
+Slide 17: 
+Slide 17: 3/24/23
+Slide 17: 17
+Slide 18: Single Agent Migration
+Slide 18: Distributed Task Allocation for Multi-agent UAM
+Slide 18: 
+Slide 18: 3/24/23
+Slide 18: 18
+Slide 19: Single Agent Migration
+Slide 19: Distributed Task Allocation for Multi-agent UAM
+Slide 19: 
+Slide 19: 3/24/23
+Slide 19: 19
+Slide 20: Multi-agent Migration
+Slide 20: Distributed Task Allocation for Multi-agent UAM
+Slide 20: 
+Slide 20: 
+Slide 20: 
+Slide 20: 3/24/23
+Slide 20: 20
+Slide 21: Multi-agent Migration
+Slide 21: Distributed Task Allocation for Multi-agent UAM
+Slide 21: 
+Slide 21: 
+Slide 21: 
+Slide 21: 3/24/23
+Slide 21: 21
+Slide 22: Multi-agent Migration
+Slide 22: Distributed Task Allocation for Multi-agent UAM
+Slide 22: 
+Slide 22: 
+Slide 22: 
+Slide 22: 3/24/23
+Slide 22: 22
+Slide 23: Multi-agent Migration
+Slide 23: Distributed Task Allocation for Multi-agent UAM
+Slide 23: 
+Slide 23: 
+Slide 23: 
+Slide 23: 3/24/23
+Slide 23: 23
+Slide 24: Multi-agent Migration
+Slide 24: Distributed Task Allocation for Multi-agent UAM
+Slide 24: 
+Slide 24: 
+Slide 24: 
+Slide 24: 3/24/23
+Slide 24: 24
+Slide 25: Multi-agent Migration
+Slide 25: Distributed Task Allocation for Multi-agent UAM
+Slide 25: 
+Slide 25: 
+Slide 25: 
+Slide 25: 3/24/23
+Slide 25: 25
+Slide 26: Multi-agent Migration
+Slide 26: Distributed Task Allocation for Multi-agent UAM
+Slide 26: 
+Slide 26: 
+Slide 26: 
+Slide 26: 3/24/23
+Slide 26: 26
+Slide 27: Multi-agent Migration
+Slide 27: Distributed Task Allocation for Multi-agent UAM
+Slide 27: 
+Slide 27: 
+Slide 27: 
+Slide 27: 3/24/23
+Slide 27: 27
+Slide 28: Multi-agent Migration
+Slide 28: Distributed Task Allocation for Multi-agent UAM
+Slide 28: 
+Slide 28: 
+Slide 28: 3/24/23
+Slide 28: 28
+Slide 29: Agents
+Slide 29: Distributed Task Allocation for Multi-agent UAM
+Slide 29: Tasks
+Slide 29: What if a UAV’s trajectory causes a node to become oversubscribed for data?
+Slide 29: 3/24/23
+Slide 29: 29
+Slide 29: Cost Function
+Slide 30: 
+Slide 30: 
+Slide 30: Phoenix Demo
+Slide 30: Responding to node dropout from city network
+Replan data migration scheduling with remaining network
+Single UAV performing delivery between two points with given trajectory
+Multiple data nodes
+Slide 30: 3/24/23
+Slide 30: Distributed Task Allocation for Multi-agent UAM
+Slide 30: 30
+Slide 31: Example Test Case
+Slide 31: 3/24/23
+Slide 31: Distributed Task Allocation for Multi-agent UAM
+Slide 31: 31
+Slide 32: Full Trajectory
+Slide 32: 3/24/23
+Slide 32: Distributed Task Allocation for Multi-agent UAM
+Slide 32: 32
+Slide 33: Next Steps
+Slide 33: Beginning of a modular library for multi-agent reasoning 
+Explore Optimization or ML-based Cost Function discovery
+Investigate data reasoning trust in distributed agent system
+Slide 33: 3/24/23
+Slide 33: Distributed Task Allocation for Multi-agent UAM
+Slide 33: 33
