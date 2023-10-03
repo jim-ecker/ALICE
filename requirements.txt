@@ -1,0 +1,2 @@
+python-pptx==0.6.21
+click==8.0.3
