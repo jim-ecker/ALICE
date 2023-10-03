@@ -1,0 +1,20 @@
+Market-based multi-agent task allocation.
+Auction algorithms for task distribution in drones.
+Cooperative task assignment in robotic systems.
+Swarm intelligence in Urban Air Mobility.
+Centralized vs decentralized task allocation techniques.
+Hungarian algorithm for task assignment.
+Particle swarm optimization in multi-agent systems.
+Multi-robot exploration and mapping strategies.
+Game-theoretic approaches to multi-agent coordination.
+Utility-based task allocation in robotic fleets.
+Genetic algorithms for drone path planning.
+Dynamic reassignment methods in UAV networks.
+Task partitioning in distributed robotic systems.
+Boids algorithm for swarm-based UAV coordination.
+Consensus algorithms in decentralized networks.
+Ant colony optimization for multi-drone routing.
+Graph-based task allocation in drone networks.
+Multi-objective optimization in UAM.
+Neural network-based coordination for multi-agent systems.
+Distributed data fusion in drone swarms.
