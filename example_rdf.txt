@@ -1,0 +1,36 @@
+@prefix ppt: <http://example.org/ppt#> .
+@prefix dc: <http://purl.org/dc/elements/1.1/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Slide 1
+ppt:slide1 a ppt:Slide ;
+    dc:title "Distributed Task Allocation for Multi-agent Urban Air Mobility" ;
+    ppt:author "Jim Ecker" ;
+    ppt:date "3/24/23" ;
+    ppt:slideNumber 1 ;
+    ppt:searchTerms "Distributed Task", "Allocation", "Multi-agent", "Urban Air Mobility", "UAM".
+
+# Slide 2
+ppt:slide2 a ppt:Slide ;
+    dc:title "Data & Reasoning Fabric (DRF)" ;
+    ppt:date "3/24/23" ;
+    ppt:slideNumber 2 ;
+    ppt:description "DRF’s vision is to provide seamless access both to services offering DATA and to tools for REASONING over decisions based on that data. DRF envisions a digital “marketplace” where providers like weather services, mapping and surveying firms, air traffic management, and others can offer their data and reasoning services to aircraft operators via digital agreements." ;
+    ppt:searchTerms "DRF", "Data", "Reasoning", "Digital Marketplace", "Aircraft Operators", "Weather Services", "Mapping", "Air Traffic Management".
+
+# Slide 3
+ppt:slide3 a ppt:Slide ;
+    dc:title "DRF Architecture" ;
+    ppt:date "3/24/23" ;
+    ppt:slideNumber 3 ;
+    ppt:searchTerms "DRF", "Architecture".
+
+# (The description can continue in this manner for the other slides.)
+
+# Slide 33
+ppt:slide33 a ppt:Slide ;
+    dc:title "Next Steps" ;
+    ppt:date "3/24/23" ;
+    ppt:slideNumber 33 ;
+    ppt:description "Beginning of a modular library for multi-agent reasoning. Explore Optimization or ML-based Cost Function discovery. Investigate data reasoning trust in distributed agent system." ;
+    ppt:searchTerms "Next Steps", "Modular Library", "Multi-agent", "Reasoning", "Optimization", "ML", "Cost Function", "Data Reasoning", "Trust", "Distributed System".
