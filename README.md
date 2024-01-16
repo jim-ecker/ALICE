@@ -1,7 +1,7 @@
 # ALICE
 AI-Enabled Lost Information Capture and Exploration 
 
-![Alice In Wonderland Woodcarving](John-Tenniel-Alice-In-Wonderland-Wood-Engravings-Through-Looking-Glass.jpg)
+![Alice In Wonderland Woodcarving](images/John-Tenniel-Alice-In-Wonderland-Wood-Engravings-Through-Looking-Glass.jpg)
 
 # Powerpoint Scraper (ppt-scraper.py)
 
@@ -22,7 +22,7 @@ pip install -r requirements.txt
 - Extract charts from slides and save them to specified folders
 
 ```bash
-python main.py --pptx [PATH_TO_PPTX] --output [OUTPUT_DIRECTORY] [--text]
+python ppt-scraper.py --pptx [PATH_TO_PPTX] --output [OUTPUT_DIRECTORY] [--text]
 ```
 
 ## Arguments:
@@ -34,7 +34,7 @@ python main.py --pptx [PATH_TO_PPTX] --output [OUTPUT_DIRECTORY] [--text]
 To extract images and charts from a presentation:
 
 ```bash
-python main.py --pptx sample.pptx --output extracted_data
+python ppt-scraper.py --pptx sample.pptx --output extracted_data
 ```
 
 ### Note
