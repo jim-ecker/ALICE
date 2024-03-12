@@ -7,6 +7,248 @@
 * [Sciduet Dataset](https://github.com/IBM/document2slides)
 * [Document Visual Qustion Answering on Multiple Images](https://doi.org/10.48550/arXiv.2301.04883)
 
+## Example of Presentation with related document listed
+
+```json
+{
+      "_meta": {
+        "score": 75.3385
+      },
+      "copyright": {
+        "determinationType": "PUBLIC_USE_PERMITTED",
+        "thirdPartyContentCondition": "NOT_SET"
+      },
+      "subjectCategories": [
+        "Spacecraft Design, Testing And Performance",
+        "Communications And Radar",
+        "Lasers And Masers"
+      ],
+      "exportControl": {
+        "isExportControl": "NO",
+        "ear": "NO",
+        "itar": "NO"
+      },
+      "distributionDate": "2019-07-11T00:00:00.0000000+00:00",
+      "otherReportNumbers": [
+        "NF1676L-19084"
+      ],
+      "fundingNumbers": [
+        {
+          "number": "WBS 743588.01.99.99.99.99.23",
+          "type": "WBS"
+        }
+      ],
+      "title": "Lidar Sensor Performance in Closed-Loop Flight Testing of the Morpheus Rocket-Propelled Lander to a Lunar-Like Hazard Field",
+      "stiType": "CONFERENCE_PAPER",
+      "distribution": "PUBLIC",
+      "submittedDate": "2016-05-06T10:59:49.8800000+00:00",
+      "authorAffiliations": [
+        {
+          "sequence": 0,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Roback, Vincent E."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "dbbc22325ae6476ca33756ea17d9ea27"
+        },
+        {
+          "sequence": 1,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Pierrottet, Diego F."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "c7a4f473c3c143db813313e9cccf60a3"
+        },
+        {
+          "sequence": 2,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Amzajerdian, Farzin"
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "aa3ab30bfa1c4cc3a75689d938df09bf"
+        },
+        {
+          "sequence": 3,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Barnes, Bruce W."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "44b00bb7822c4bdd8571c2c5ece09198"
+        },
+        {
+          "sequence": 4,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Hines, Glenn D."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "56f997560a334f22a6d58ec8af6c42f6"
+        },
+        {
+          "sequence": 5,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Petway, Larry B."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "20ab3ef528644185a77196838bc68f03"
+        },
+        {
+          "sequence": 6,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Brewster, Paul F."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "b7ee78e8512845469eda3adf1c8e8e69"
+        },
+        {
+          "sequence": 7,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Kempton, Kevin S."
+            },
+            "organization": {
+              "name": "NASA Langley Research Center",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "b7b59741dd604bc5a3e2db8379487466"
+        },
+        {
+          "sequence": 8,
+          "submissionId": 20160005928,
+          "meta": {
+            "author": {
+              "name": "Bulyshev, Alexander E."
+            },
+            "organization": {
+              "name": "Analytical Mechanics Associates, Inc.",
+              "location": "Hampton, VA, United States"
+            }
+          },
+          "id": "f79d89e875f842e996ce4c64e3912304"
+        }
+      ],
+      "stiTypeDetails": "Conference Paper",
+      "technicalReviewType": "TECHNICAL_REVIEW_TYPE_NONE",
+      "modified": "2022-11-19T16:39:27.8290800+00:00",
+      "id": 20160005928,
+      "legacyMeta": {
+        "__type": "LegacyMetaIndex, StrivesApi.ServiceModel",
+        "accessionNumber": ""
+      },
+      "created": "2016-05-06T10:59:49.8800000+00:00",
+      "center": {
+        "code": "LaRC",
+        "name": "Langley Research Center",
+        "id": "1e229fe5b7284965a153b0f761643383"
+      },
+      "onlyAbstract": true,
+      "sensitiveInformation": 2,
+      "abstract": "For the first time, a suite of three lidar sensors have been used in flight to scan a lunar-like hazard field, identify a safe landing site, and, in concert with an experimental Guidance, Navigation, and Control (GN&C) system, guide the Morpheus autonomous, rocket-propelled, free-flying test bed to a safe landing on the hazard field. The lidar sensors and GN&C system are part of the Autonomous Precision Landing and Hazard Detection and Avoidance Technology (ALHAT) project which has been seeking to develop a system capable of enabling safe, precise crewed or robotic landings in challenging terrain on planetary bodies under any ambient lighting conditions. The 3-D imaging flash lidar is a second generation, compact, real-time, air-cooled instrument developed from a number of cutting-edge components from industry and NASA and is used as part of the ALHAT Hazard Detection System (HDS) to scan the hazard field and build a 3-D Digital Elevation Map (DEM) in near-real time for identifying safe sites. The flash lidar is capable of identifying a 30 cm hazard from a slant range of 1 km with its 8 cm range precision at 1 sigma. The flash lidar is also used in Hazard Relative Navigation (HRN) to provide position updates down to a 250m slant range to the ALHAT navigation filter as it guides Morpheus to the safe site. The Doppler Lidar system has been developed within NASA to provide velocity measurements with an accuracy of 0.2 cm/sec and range measurements with an accuracy of 17 cm both from a maximum range of 2,200 m to a minimum range of several meters above the ground. The Doppler Lidar's measurements are fed into the ALHAT navigation filter to provide lander guidance to the safe site. The Laser Altimeter, also developed within NASA, provides range measurements with an accuracy of 5 cm from a maximum operational range of 30 km down to 1 m and, being a separate sensor from the flash lidar, can provide range along a separate vector. The Laser Altimeter measurements are also fed into the ALHAT navigation filter to provide lander guidance to the safe site. The flight tests served as the culmination of the TRL 6 journey for the lidar suite and included launch from a pad situated at the NASA-Kennedy Space Center Shuttle Landing Facility (SLF) runway, a lunar-like descent trajectory from an altitude of 250m, and landing on a lunar-like hazard field of rocks, craters, hazardous slopes, and safe sites 400m down-range just off the North end of the runway. The tests both confirmed the expected performance and also revealed several challenges present in the flight-like environment which will feed into future TRL advancement of the sensors. The flash lidar identified hazards as small as 30 cm from the maximum slant range of 450 m which Morpheus could provide, however, it was occasionally susceptible to an increase in range noise due to heated air from the Morpheus rocket plume which entered its Field-of-View (FOV). The flash lidar was also susceptible to pre-triggering on dust during the HRN phase which was created during launch and transported by the wind. The Doppler Lidar provided velocity and range measurements to the expected accuracy levels yet it was also susceptible to signal degradation due to air heated by the rocket engine. The Laser Altimeter, operating with a degraded transmitter laser, also showed signal attenuation over a few seconds at a specific phase of the flight due to the heat plume generated by the rocket engine.",
+      "isLessonsLearned": false,
+      "disseminated": "DOCUMENT_AND_METADATA",
+      "meetings": [
+        {
+          "country": "United States",
+          "submissionId": 20160005928,
+          "endDate": "2015-01-09T00:00:00.0000000+00:00",
+          "sponsors": [
+            {
+              "meta": {
+                "organization": {
+                  "name": "American Inst. of Aeronautics and Astronautics",
+                  "location": "Reston, VA, United States"
+                }
+              },
+              "meetingId": "5d3165d0297243a5866db5c2fd0a9533",
+              "id": "1238983a80764dd5acfba2d8c356cf4c"
+            }
+          ],
+          "name": "SciTech 2015",
+          "location": "Kissimmee, FL",
+          "id": "5d3165d0297243a5866db5c2fd0a9533",
+          "startDate": "2015-01-05T00:00:00.0000000+00:00"
+        }
+      ],
+      "publications": [
+        {
+          "submissionId": 20160005928,
+          "id": "b5cb8cc3dc844e20a64647710ea415b8",
+          "publicationDate": "2015-01-05T00:00:00.0000000+00:00"
+        }
+      ],
+      "status": "CURATED",
+      "related": [
+        {
+          "disseminated": "DOCUMENT_AND_METADATA",
+          "id": 20160006855,
+          "type": "SEE_ALSO",
+          "title": "Lidar Sensor Performance in Closed-Loop Flight Testing of the Morpheus Rocket-Propelled Lander to a Lunar-Like Hazard Field",
+          "stiType": "PRESENTATION",
+          "distribution": "PUBLIC",
+          "status": "CURATED"
+        }
+      ],
+      "downloads": [
+        {
+          "draft": false,
+          "mimetype": "application/pdf",
+          "name": "20160005928.pdf",
+          "type": "STI",
+          "links": {
+            "original": "/api/citations/20160005928/downloads/20160005928.pdf",
+            "pdf": "/api/citations/20160005928/downloads/20160005928.pdf",
+            "fulltext": "/api/citations/20160005928/downloads/20160005928.txt"
+          }
+        }
+      ],
+      "downloadsAvailable": true,
+      "index": "submissions-2024-03-07-05-31"
+    }
+```
+
 ## Problem Aligning Presentations to Publications (My presentation/publication pair is retrieved using two different author names)
 
 ### Example API Response author=James%20Ecker
