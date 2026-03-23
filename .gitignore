@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info/
+
+# Virtual environments
+.venv
+
+# macOS
+.DS_Store
+
+# Runtime databases & indices
+*.db
+*.embeddings.npz
+
+# Downloaded documents
+downloads/
+
+# Expert data (databases, embeddings, downloaded PDFs, metadata)
+/experts/
+
+# Generated outputs
+graph.html
+backups/
+
+# Dev/debug scripts
+diagnose_retrieval.py
+
+# Reference PDFs (not redistributable)
+notes/*.pdf
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Local config override (copy alice.toml and edit for your setup)
+alice.local.toml

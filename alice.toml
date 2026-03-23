@@ -1,0 +1,58 @@
+# ALICE LLM backend configuration
+# CLI flags always take precedence over values here.
+
+# Mac (MLX) — used for triple extraction
+[llm]
+backend = "mlx"
+model = "mlx-community/Qwen2.5-14B-Instruct-4bit"
+workers = 1
+
+# Chat response model — overrides [llm] for the chat server only
+[chat_llm]
+backend = "mlx"
+model = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+
+# Linux (Ollama) — replace the block above with this:
+# [llm]
+# backend = "openai-compatible"
+# model = "qwen2.5:14b"
+# base_url = "http://localhost:11434/v1"
+# workers = 8
+
+# Linux (vLLM) — replace the block above with this:
+# [llm]
+# backend = "openai-compatible"
+# model = "your-model-id"
+# base_url = "http://localhost:8000/v1"
+# workers = 8
+
+[scoring]
+# Signal weights (normalised internally — only ratios matter)
+ingest_certainty_weight = 0.4
+relevance_weight = 0.4
+provenance_weight = 0.2
+grounding_weight = 0.0       # only active when grounding_enabled = true
+
+# LLM entailment pass — one LLM call per triple, opt-in
+grounding_enabled = false
+
+# Keep only the top-N triples by composite score per response (comment out to keep all)
+relevance_filter_top_k = 50
+
+[chat]
+db_path = "chat.db"
+embeddings_path = "chat.embeddings.npz"
+host = "127.0.0.1"
+port = 8766
+history_turns = 10
+top_k_chunks = 15
+max_tokens = 2048
+max_context_chunks = 20
+entity_hop_depth = 2
+max_hop2_entities = 20
+
+[embeddings]
+base_url = "http://localhost:11434/v1"
+api_key = "token"
+model = "nomic-embed-text"
+batch_size = 64
