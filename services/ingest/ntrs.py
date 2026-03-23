@@ -110,11 +110,29 @@ def download_pdf(record: NTRSRecord, output_dir: Path) -> Path:
         return dest
 
     url = f"https://ntrs.nasa.gov{record.download_path}"
-    response = requests.get(url, timeout=60, stream=True)
-    response.raise_for_status()
 
-    with dest.open("wb") as f:
-        for chunk in response.iter_content(chunk_size=8192):
-            f.write(chunk)
+    # Try with session and retry logic for problematic downloads
+    session = requests.Session()
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (compatible; ALICE-bot/1.0; +https://github.com/yourorg/alice)'
+    })
+
+    for attempt in range(3):
+        try:
+            response = session.get(url, timeout=(30, 180), stream=True)
+            response.raise_for_status()
+
+            with dest.open("wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+
+            return dest
+
+        except requests.exceptions.Timeout as e:
+            if attempt == 2:  # Last attempt
+                raise e
+            # Wait before retry
+            import time
+            time.sleep(1)
 
     return dest

@@ -95,8 +95,8 @@ class Ingest:
                     downloaded.append((dest, record.title, record.citation_url))
                     if on_download:
                         on_download(record.title)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Failed to download '{record.title[:60]}...': {e}")
 
         if not downloaded:
             return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
@@ -133,8 +133,9 @@ class Ingest:
                         doc_details.append((title, citation_url, len(chunks)))
                         if on_chunk:
                             on_chunk(title, len(chunks))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        _, title, _ = futures2[future]
+                        print(f"Failed to chunk '{title[:60]}...': {e}")
 
         return DownloadResult(docs_added=len(doc_details), chunks_added=total_chunks, doc_details=doc_details)
 

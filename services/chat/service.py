@@ -80,7 +80,14 @@ class Chat:
         import kuzu
 
         if self._llm_cfg is None:
-            self._llm_cfg = resolve_config(start_dir=self._db_path.parent)
+            self._llm_cfg = resolve_config(
+                cli_model=None,
+                cli_backend=None,
+                cli_base_url=None,
+                cli_api_key=None,
+                cli_workers=None,
+                start_dir=self._db_path.parent,
+            )
         if self._embed_client is None:
             self._embed_client = EmbeddingsClient(self._embed_cfg)
 
