@@ -20,6 +20,7 @@ class ChatConfig:
     max_context_chunks: int = 20
     entity_hop_depth: int = 1
     max_hop2_entities: int = 20
+    ingest_folder: Path | None = None
 
 
 def load_chat_config(
@@ -55,6 +56,7 @@ def load_chat_config(
         max_context_chunks=int(chat_raw.get("max_context_chunks", 20)),
         entity_hop_depth=int(chat_raw.get("entity_hop_depth", 1)),
         max_hop2_entities=int(chat_raw.get("max_hop2_entities", 20)),
+        ingest_folder=Path(chat_raw["ingest_folder"]) if "ingest_folder" in chat_raw else None,
     )
 
     embed_cfg = EmbeddingsConfig(

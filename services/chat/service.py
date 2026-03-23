@@ -247,6 +247,48 @@ class Chat:
             index_size=result.index_size,
         )
 
+    def ingest_local_files(
+        self,
+        confirmed_docs: list,
+        *,
+        dashboard_port: int = 8765,
+        on_chunk=None,
+        on_extract_start=None,
+        on_chunk_extracted=None,
+    ) -> IngestResult:
+        """Ingest a list of (pdf_path, meta_dict) tuples into the chat knowledge graph."""
+        from services.ingest.service import Ingest
+
+        db_path = self._chat_cfg.db_path
+        emb_path = db_path.parent / self._chat_cfg.embeddings_path
+
+        if self._llm_cfg is None:
+            from core.llm.config import resolve_config
+            self._llm_cfg = resolve_config(start_dir=db_path.parent)
+        if self._embed_client is None:
+            self._embed_client = EmbeddingsClient(self._embed_cfg)
+
+        ingest_svc = Ingest(
+            db_path=db_path,
+            llm_cfg=self._llm_cfg,
+            embed_client=self._embed_client,
+            embeddings_path=emb_path,
+        )
+        result, new_index = ingest_svc.ingest_local_files(
+            confirmed_docs,
+            dashboard_port=dashboard_port,
+            on_chunk=on_chunk,
+            on_extract_start=on_extract_start,
+            on_chunk_extracted=on_chunk_extracted,
+        )
+        if self._state is not None:
+            self._state.retriever.update_index(new_index)
+        return IngestResult(
+            docs_added=result.docs_added,
+            chunks_added=result.chunks_added,
+            index_size=result.index_size,
+        )
+
     def create_app(self):
         """Return a configured FastAPI app, triggering _setup() if needed."""
         if self._state is None:

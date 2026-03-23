@@ -241,6 +241,66 @@ class Ingest:
             index.save(self._embeddings_path)
         return index
 
+    def ingest_local_files(
+        self,
+        confirmed_docs: list[tuple[Path, dict]],
+        dashboard_port: int = 8765,
+        on_chunk: "callable[[str, int], None] | None" = None,
+        on_extract_start: "callable[[int], None] | None" = None,
+        on_chunk_extracted: "callable[[int, int, int], None] | None" = None,
+    ) -> "tuple[IngestResult, EmbeddingIndex]":
+        """Ingest a list of local PDFs with pre-confirmed metadata.
+
+        confirmed_docs: list of (pdf_path, meta_dict) where meta_dict has at least 'title'.
+        """
+        from core.graph import KuzuStore
+
+        total_chunks = 0
+        doc_details = []
+
+        with KuzuStore(self._db_path) as store:
+            with ThreadPoolExecutor(max_workers=min(self._chunk_workers, max(1, len(confirmed_docs)))) as executor:
+                futures = {
+                    executor.submit(
+                        _chunk_document,
+                        (path, meta.get("title") or path.stem, f"file://{path.absolute()}"),
+                    ): (path, meta)
+                    for path, meta in confirmed_docs
+                }
+                for future in as_completed(futures):
+                    path, meta = futures[future]
+                    try:
+                        source, chunks, title, citation_url = future.result()
+                        store.write_document(source.id, source.source_url, source.doc_type, title)
+                        for chunk in chunks:
+                            store.write_chunk(
+                                id=chunk.id,
+                                document_id=chunk.provenance.document_id,
+                                content=chunk.content,
+                                section_heading=chunk.provenance.section_heading,
+                                page_number=chunk.provenance.page_number,
+                            )
+                        total_chunks += len(chunks)
+                        doc_details.append((title, citation_url, len(chunks)))
+                        if on_chunk:
+                            on_chunk(title, len(chunks))
+                    except Exception as e:
+                        print(f"Failed to chunk '{path.name}': {e}")
+
+        if total_chunks > 0:
+            self.extract(
+                dashboard_port=dashboard_port,
+                on_extract_start=on_extract_start,
+                on_chunk_extracted=on_chunk_extracted,
+            )
+        index = self.build_index()
+        result = IngestResult(
+            docs_added=len(doc_details),
+            chunks_added=total_chunks,
+            index_size=len(index),
+        )
+        return result, index
+
     def run(
         self,
         query: str,

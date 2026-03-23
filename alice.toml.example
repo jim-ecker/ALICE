@@ -45,6 +45,7 @@ relevance_filter_top_k = 50
 
 [chat]
 db_path = "chat.db"
+# ingest_folder = "/path/to/your/pdf/folder"   # default folder for `alice chat ingest-folder`
 embeddings_path = "chat.embeddings.npz"
 host = "127.0.0.1"
 port = 8766

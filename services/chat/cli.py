@@ -167,6 +167,182 @@ def ingest(
     typer.echo(f"Done: {result.docs_added} docs, {result.chunks_added} chunks, index: {result.index_size}")
 
 
+@chat_app.command("ingest-folder")
+def ingest_folder(
+    folder: Optional[Path] = typer.Argument(None, help="Folder containing PDF files to ingest (overrides alice.toml ingest_folder)"),
+    db_path: Path = typer.Option(Path("chat.db"), "--db-path", help="Path to the chat KuzuDB database"),
+    recursive: bool = typer.Option(False, "--recursive", "-r", help="Search for PDFs recursively"),
+    no_verify: bool = typer.Option(False, "--no-verify", help="Skip interactive metadata verification"),
+    model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
+    backend: Optional[str] = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
+    base_url: Optional[str] = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
+    api_key: Optional[str] = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
+    workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    dashboard_port: int = typer.Option(8765, help="Port for the extraction progress dashboard"),
+) -> None:
+    """Ingest local PDF files from a folder into the chat knowledge graph.
+
+    Extracts metadata from each PDF (from PDF headers, then LLM inference for missing fields).
+    Presents metadata for user verification before processing unless --no-verify is set.
+    """
+    import questionary
+    from rich.panel import Panel
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+    from rich.table import Table as RichTable
+    from core.llm.config import resolve_config
+    from services.chat.config import load_chat_config
+    from services.chat.service import Chat
+    from services.ingest.metadata import extract_pdf_metadata, infer_missing_metadata
+
+    if folder is None:
+        chat_cfg, _, _, _ = load_chat_config()
+        if chat_cfg.ingest_folder is None:
+            typer.echo(
+                "No folder specified. Pass a folder argument or set ingest_folder in alice.toml [chat].",
+                err=True,
+            )
+            raise typer.Exit(1)
+        folder = chat_cfg.ingest_folder
+
+    folder = folder.expanduser().resolve()
+    if not folder.is_dir():
+        typer.echo(f"Not a directory: {folder}", err=True)
+        raise typer.Exit(1)
+
+    pattern = "**/*.pdf" if recursive else "*.pdf"
+    pdfs = sorted(folder.glob(pattern))
+    if not pdfs:
+        typer.echo(f"No PDF files found in {folder}")
+        raise typer.Exit(1)
+
+    typer.echo(f"Found {len(pdfs)} PDF(s) in {folder}")
+
+    llm_cfg = resolve_config(
+        cli_model=model,
+        cli_backend=backend,
+        cli_base_url=base_url,
+        cli_api_key=api_key,
+        cli_workers=workers,
+    )
+
+    # Phase 1: extract PDF header metadata for all documents
+    typer.echo("Extracting PDF metadata...")
+    all_meta = {}
+    for pdf in pdfs:
+        all_meta[pdf] = extract_pdf_metadata(pdf)
+
+    # Phase 2: LLM inference for docs with missing title or authors
+    needs_inference = [pdf for pdf in pdfs if not all_meta[pdf].get("title") or not all_meta[pdf].get("authors")]
+    if needs_inference and not no_verify:
+        typer.echo(f"{len(needs_inference)} document(s) have missing metadata — loading LLM for inference...")
+        from core.llm.factory import create_backend
+        llm = create_backend(llm_cfg)
+        for pdf in needs_inference:
+            all_meta[pdf] = infer_missing_metadata(all_meta[pdf], llm)
+
+    # Phase 3: Interactive per-document metadata verification
+    confirmed_docs: list[tuple[Path, dict]] = []
+
+    for pdf in pdfs:
+        meta = all_meta[pdf]
+        inferred = meta.get("_inferred_fields", set())
+
+        if no_verify:
+            confirmed_docs.append((pdf, meta))
+            continue
+
+        rprint(Panel(f"[bold]{pdf.name}[/bold]", expand=False))
+
+        def _label(field: str, value: str) -> str:
+            tag = " [cyan](inferred)[/cyan]" if field in inferred else " [green](from PDF)[/green]" if value else ""
+            return f"  {field}{tag}"
+
+        rprint(_label("title", meta.get("title", "")))
+        rprint(_label("authors", meta.get("authors", "")))
+        rprint(_label("year", meta.get("year", "")))
+        rprint(_label("abstract", meta.get("abstract", "")))
+
+        confirmed_title = questionary.text(
+            "Title:", default=meta.get("title") or pdf.stem
+        ).ask()
+        if confirmed_title is None:
+            typer.echo("Cancelled.")
+            raise typer.Exit(0)
+
+        confirmed_authors = questionary.text(
+            "Authors:", default=meta.get("authors", "")
+        ).ask() or ""
+
+        confirmed_year = questionary.text(
+            "Year:", default=meta.get("year", "")
+        ).ask() or ""
+
+        confirmed_docs.append((pdf, {
+            "title": confirmed_title,
+            "authors": confirmed_authors,
+            "year": confirmed_year,
+        }))
+
+    # Display summary table
+    tbl = RichTable(title="Documents to Ingest")
+    tbl.add_column("File", no_wrap=True)
+    tbl.add_column("Title", ratio=1)
+    tbl.add_column("Authors")
+    tbl.add_column("Year", justify="right")
+    for pdf, meta in confirmed_docs:
+        tbl.add_row(pdf.name, meta.get("title", ""), meta.get("authors", ""), meta.get("year", ""))
+    rprint(tbl)
+
+    if not no_verify:
+        proceed = questionary.confirm("Proceed with ingestion?", default=True).ask()
+        if not proceed:
+            typer.echo("Aborted.")
+            raise typer.Exit(0)
+
+    # Phase 4: Chunk + extract + build index
+    chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
+
+    chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
+    chunk_progress.start()
+    chunk_task = chunk_progress.add_task("Chunking PDFs...", total=len(confirmed_docs))
+
+    extract_progress = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn())
+    extract_started = [False]
+
+    def on_chunk(title: str, chunk_count: int) -> None:
+        chunk_progress.advance(chunk_task)
+
+    def on_extract_start(total_chunks: int) -> None:
+        chunk_progress.stop()
+        extract_progress.start()
+        extract_progress.add_task("Loading model...", total=total_chunks)
+        extract_started[0] = True
+
+    def on_chunk_extracted(chunks_done: int, total_chunks: int, triples_this_chunk: int) -> None:
+        if extract_started[0]:
+            for task_id in extract_progress.task_ids:
+                extract_progress.update(
+                    task_id,
+                    completed=chunks_done,
+                    total=total_chunks,
+                    description=f"Extracting triples... (+{triples_this_chunk})",
+                )
+
+    result = chat.ingest_local_files(
+        confirmed_docs,
+        dashboard_port=dashboard_port,
+        on_chunk=on_chunk,
+        on_extract_start=on_extract_start,
+        on_chunk_extracted=on_chunk_extracted,
+    )
+
+    chunk_progress.stop()
+    if extract_started[0]:
+        extract_progress.stop()
+
+    typer.echo(f"Done: {result.docs_added} docs, {result.chunks_added} chunks, index: {result.index_size}")
+
+
 @chat_app.command()
 def backup(
     backup_dir: str = typer.Option("backups", help="Directory to store backups"),
