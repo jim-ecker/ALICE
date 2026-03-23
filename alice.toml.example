@@ -3,18 +3,18 @@
 
 # Mac (MLX) — used for triple extraction
 [llm]
-# backend = "mlx"
-# model = "mlx-community/Qwen2.5-14B-Instruct-4bit"
-# workers = 1
-backend = "openai-compatible"
-model = "qwen2.5:14b"
-base_url = "http://localhost:11434/v1"
+backend = "mlx"
+model = "mlx-community/Qwen2.5-14B-Instruct-4bit"
 workers = 1
+# backend = "openai-compatible"
+# model = "qwen2.5:14b"
+# base_url = "http://localhost:11434/v1"
+# workers = 1
 
 # Chat response model — overrides [llm] for the chat server only
-# [chat_llm]
-# backend = "mlx"
-# model = "mlx-community/Qwen2.5-32B-Instruct-4bit"
+[chat_llm]
+backend = "mlx"
+model = "mlx-community/Qwen2.5-32B-Instruct-4bit"
 
 # Linux (Ollama) — replace the block above with this:
 # [llm]

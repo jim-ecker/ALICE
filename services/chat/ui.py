@@ -76,6 +76,11 @@ CHAT_HTML = r"""<!DOCTYPE html>
                  font-size: 12px; position: relative; }
   .expert-card:hover { border-color: var(--accent); }
   .expert-card.active { border-color: var(--accent2); background: var(--surface); }
+  .expert-card.loading { border-color: var(--yellow); cursor: wait;
+                          animation: pulse-border 1s ease-in-out infinite; }
+  .expert-card.switching-blocked { pointer-events: none; opacity: .5; cursor: not-allowed; }
+  @keyframes pulse-border { 0%,100% { border-color: var(--yellow); }
+                             50% { border-color: transparent; } }
   .expert-card .expert-name { font-weight: 600; color: var(--text); margin-bottom: 4px; }
   .expert-card .expert-areas { display: flex; flex-wrap: wrap; gap: 3px; }
   .expert-card .area-tag { font-size: 10px; color: var(--accent2); background: rgba(124,106,247,.12);
@@ -206,7 +211,7 @@ CHAT_HTML = r"""<!DOCTYPE html>
 <div id="sidebar">
   <div id="sidebar-header">
     <h1><img src="/static/nasa.png" alt="NASA"> ALICE</h1>
-    <p>Knowledge Graph Chat</p>
+    <p>AI Leveraged Information Capture and Exploration</p>
   </div>
 
   <!-- Mode toggle — slide switch -->
@@ -235,11 +240,11 @@ CHAT_HTML = r"""<!DOCTYPE html>
     <div id="empty-state">
       <div class="icon"><img src="/static/nasa.png" alt="ALICE"></div>
       <h2>ALICE Research Assistant</h2>
-      <p>Select or create a conversation to start querying the knowledge graph.</p>
+      <p></p>
     </div>
   </div>
   <div id="input-area">
-    <textarea id="msg-input" placeholder="Ask a question about the knowledge graph..." rows="1"></textarea>
+    <textarea id="msg-input" placeholder="Ask a question..." rows="1"></textarea>
     <button id="send-btn">Send</button>
   </div>
 </div>
@@ -261,6 +266,7 @@ const API = '';
 let activeConvId = null;
 let sending = false;
 let activeExpertSlug = null;
+let switchingExpert = null;  // slug currently being loaded, or null
 
 // Utility
 const $  = id => document.getElementById(id);
@@ -317,10 +323,13 @@ async function loadStatus() {
   try {
     const r = await fetch(`${API}/api/status`);
     const d = await r.json();
-    const expertSuffix = activeExpertSlug
-      ? ` · expert: ${activeExpertSlug}`
-      : '';
-    $('status-bar').textContent = `${d.backend} · ${d.model} · ${d.index_size} chunks${expertSuffix}`;
+    $('status-bar').innerHTML = `
+      <div style="display:grid;grid-template-columns:max-content 1fr;gap:1px 8px;line-height:1.6">
+        <span>Backend:</span><span>${esc(d.backend)}</span>
+        <span>Model Loaded:</span><span>${esc(d.model.replace('mlx-community/', ''))}</span>
+        <span>Total Chunks:</span><span>${d.index_size}</span>
+        ${activeExpertSlug ? `<span>Expert:</span><span>${esc(activeExpertSlug)}</span>` : ''}
+      </div>`;
   } catch { $('status-bar').textContent = 'disconnected'; }
 }
 
@@ -334,18 +343,26 @@ async function loadExperts() {
     for (const expert of d.experts) {
       const card = document.createElement('div');
       const isActive = expert.slug === activeExpertSlug;
+      const isLoading = expert.slug === switchingExpert;
+      const isBlocked = switchingExpert !== null && !isLoading;
       const noDb = !expert.db_exists;
-      card.className = 'expert-card' + (isActive ? ' active' : '') + (noDb ? ' no-db' : '');
+      card.className = 'expert-card'
+        + (isActive ? ' active' : '')
+        + (noDb ? ' no-db' : '')
+        + (isLoading ? ' loading' : '')
+        + (isBlocked ? ' switching-blocked' : '');
       const areas = expert.expertise_areas || [];
-      const areasHTML = areas.length
-        ? areas.slice(0, 6).map(a => `<span class="area-tag">${esc(a)}</span>`).join('')
-        : '<span class="no-areas">No expertise data yet</span>';
+      const areasHTML = isLoading
+        ? '<span class="no-areas">Loading...</span>'
+        : areas.length
+          ? areas.slice(0, 6).map(a => `<span class="area-tag">${esc(a)}</span>`).join('')
+          : '<span class="no-areas">No expertise data yet</span>';
       card.innerHTML = `
         <div class="expert-name">${esc(expert.name)}${noDb ? ' <span style="color:var(--red);font-size:10px">(no DB)</span>' : ''}</div>
         <div class="expert-areas">${areasHTML}</div>
-        ${isActive ? '<span class="active-badge">Active</span>' : ''}
+        ${isActive && !isLoading ? '<span class="active-badge">Active</span>' : ''}
       `;
-      if (!noDb) {
+      if (!noDb && !switchingExpert) {
         card.addEventListener('click', () => switchExpert(expert.slug));
       }
       container.appendChild(card);
@@ -356,6 +373,9 @@ async function loadExperts() {
 }
 
 async function switchExpert(slug) {
+  if (switchingExpert) return;
+  switchingExpert = slug;
+  await loadExperts();  // immediately re-render cards with loading/blocked state
   try {
     const r = await fetch(`${API}/api/experts/switch`, {
       method: 'POST',
@@ -370,9 +390,6 @@ async function switchExpert(slug) {
     const d = await r.json();
     activeExpertSlug = slug;
     activeConvId = null;
-    await loadExperts();
-    await loadConversations();
-    await loadStatus();
     // Show expert intro in the chat area
     if (d.intro) {
       const container = $('messages');
@@ -382,6 +399,11 @@ async function switchExpert(slug) {
     }
   } catch (e) {
     alert('Switch failed: ' + e);
+  } finally {
+    switchingExpert = null;
+    await loadExperts();
+    await loadConversations();
+    await loadStatus();
   }
 }
 

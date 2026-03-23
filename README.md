@@ -45,9 +45,10 @@ ollama pull nomic-embed-text
 git clone <repo-url>
 cd ALICE_Reworked
 uv sync --extra mlx
+cp alice.toml.example alice.toml
 ```
 
-The `[llm]` section in `alice.toml` is pre-configured for MLX. Models are downloaded automatically by `mlx-lm` on first use.
+The default `alice.toml` is pre-configured for MLX. Models are downloaded automatically by `mlx-lm` on first use.
 
 ### Linux (Ollama)
 
@@ -55,6 +56,7 @@ The `[llm]` section in `alice.toml` is pre-configured for MLX. Models are downlo
 git clone <repo-url>
 cd ALICE_Reworked
 uv sync
+cp alice.toml.example alice.toml
 ```
 
 Edit `alice.toml` and replace the `[llm]` block with the Ollama configuration:
@@ -77,6 +79,7 @@ ollama pull qwen2.5:14b
 
 ```bash
 uv sync --extra vllm
+cp alice.toml.example alice.toml
 ```
 
 Edit `alice.toml`:

@@ -35,5 +35,5 @@ notes/*.pdf
 # Jupyter checkpoints
 .ipynb_checkpoints/
 
-# Local config override (copy alice.toml and edit for your setup)
-alice.local.toml
+# Local machine config (copy alice.toml.example → alice.toml and edit)
+alice.toml
