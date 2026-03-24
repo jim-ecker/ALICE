@@ -140,6 +140,27 @@ The chat UI renders per-signal coloured bars on each triple card, making the bre
 
 ## 3. Current Limitations
 
+### 2.5 `ingest_certainty` Dampening Transform
+
+Because `ingest_certainty` is systematically overconfident (see §3.1), a configurable dampening transform is applied to the raw value before it enters the weighted composite. The transform is:
+
+```
+effective = min(raw, cap) ^ exponent
+```
+
+Two parameters, both in `alice.toml [scoring]`:
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `ingest_certainty_cap` | `1.0` | Clips the raw score. Set to `0.9` to prevent the model from ever claiming ≥90% certainty. |
+| `ingest_certainty_exponent` | `1.0` | Power applied after capping. Exponent > 1 pulls high scores down faster (e.g. `0.9^2 = 0.81`). |
+
+Defaults of `(1.0, 1.0)` are identity — no dampening unless opted in. The `TrustBundle.ingest_certainty` field and the API/UI display the **post-transform** value so the composite derivation is fully transparent.
+
+Recommended starting point: `cap = 0.9, exponent = 2.0`. This maps a raw 1.0 → 0.81, 0.8 → 0.64, 0.5 → 0.25 — meaningfully separating high-confidence from moderate-confidence extractions that the LLM previously scored near-identically. This is a lightweight proxy for Platt/temperature scaling that requires no labelled calibration data.
+
+---
+
 ### 3.1 `ingest_certainty` is self-reported and uncalibrated
 
 The score comes from the same LLM call that extracted the triple. The LLM has no external reference to check against. There is no reason to expect this score to be calibrated — i.e., that 80% confident triples are correct 80% of the time. It likely over-reports confidence near 1.0.

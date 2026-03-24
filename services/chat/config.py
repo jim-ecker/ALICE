@@ -75,6 +75,8 @@ def load_chat_config(
         grounding_weight=float(score_raw.get("grounding_weight", 0.0)),
         grounding_enabled=bool(score_raw.get("grounding_enabled", False)),
         relevance_filter_top_k=int(filter_top_k) if filter_top_k is not None else None,
+        ingest_certainty_cap=float(score_raw.get("ingest_certainty_cap", 1.0)),
+        ingest_certainty_exponent=float(score_raw.get("ingest_certainty_exponent", 1.0)),
     )
 
     chat_llm_cfg = None

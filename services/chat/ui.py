@@ -6,6 +6,8 @@ CHAT_HTML = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ALICE — Knowledge Graph Chat</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -552,12 +554,39 @@ function buildCitationsHTML(citations) {
 
 // Very minimal markdown: bold, inline code, code blocks, line breaks
 function formatMarkdown(text) {
-  return esc(text)
+  const mathMap = {};
+  let mi = 0;
+  const hasMath = typeof katex !== 'undefined';
+  // Extract display math \[...\] before escaping
+  text = text.replace(/\\\[[\s\S]*?\\\]/g, m => {
+    const k = '\x00MATH' + (mi++) + '\x00';
+    if (hasMath) {
+      try { mathMap[k] = katex.renderToString(m.slice(2, -2).trim(), {displayMode: true,  throwOnError: false}); }
+      catch(e) { mathMap[k] = esc(m); }
+    } else { mathMap[k] = esc(m); }
+    return k;
+  });
+  // Extract inline math \(...\)
+  text = text.replace(/\\\([\s\S]*?\\\)/g, m => {
+    const k = '\x00MATH' + (mi++) + '\x00';
+    if (hasMath) {
+      try { mathMap[k] = katex.renderToString(m.slice(2, -2).trim(), {displayMode: false, throwOnError: false}); }
+      catch(e) { mathMap[k] = esc(m); }
+    } else { mathMap[k] = esc(m); }
+    return k;
+  });
+  // Standard markdown transforms
+  let html = esc(text)
     .replace(/```[\s\S]*?```/g, m => `<pre style="background:var(--surface2);padding:8px;border-radius:4px;overflow-x:auto;margin:6px 0;font-size:12px"><code>${m.slice(3,-3)}</code></pre>`)
     .replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:1px 4px;border-radius:3px">$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
     .replace(/\bFact_(\d+)\b/g, '<a class="fact-ref" data-fact="$1">Fact_$1</a>')
     .replace(/\n/g, '<br>');
+  // Restore math regions
+  for (const [k, rendered] of Object.entries(mathMap)) {
+    html = html.replace(k, rendered);
+  }
+  return html;
 }
 
 function scrollToBottom() {

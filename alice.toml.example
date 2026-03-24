@@ -43,6 +43,11 @@ grounding_enabled = false
 # Keep only the top-N triples by composite score per response (comment out to keep all)
 relevance_filter_top_k = 50
 
+# Dampen overconfident ingest_certainty scores (LLMs cluster near 1.0)
+# Transform: effective = min(raw, cap) ^ exponent  (defaults = no dampening)
+# ingest_certainty_cap = 0.9        # clip raw LLM confidence to this ceiling
+# ingest_certainty_exponent = 2.0   # curve the capped score down (>1 = more dampening)
+
 [chat]
 db_path = "chat.db"
 # ingest_folder = "/path/to/your/pdf/folder"   # default folder for `alice chat ingest-folder`

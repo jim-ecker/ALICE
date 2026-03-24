@@ -23,6 +23,17 @@ class ScoringConfig:
     # Keep only the top-k triples by composite score per response (None = keep all)
     relevance_filter_top_k: int | None = None
 
+    # ingest_certainty dampening — applied before weighting
+    # Transform order: effective = min(raw, cap) ^ exponent
+    # Defaults (1.0, 1.0) are identity — no dampening unless opted in via alice.toml
+    ingest_certainty_cap: float = 1.0       # clip raw LLM confidence to this ceiling
+    ingest_certainty_exponent: float = 1.0  # >1 curves the capped score downward
+
+
+def _dampen_ingest(raw: float, cap: float, exponent: float) -> float:
+    """Apply cap then power-curve to a raw ingest_certainty value."""
+    return min(raw, cap) ** exponent
+
 
 def _normalise_provenance(count: int) -> float:
     """Map provenance count to [0, 1]. 1 source → 0.0, 5+ sources → 1.0."""
@@ -68,8 +79,15 @@ class WeightedCompositeScorer(TripleScorer):
             return default if not math.isfinite(v) else v
 
         # ── Ingest certainty (always available) ──────────────────────────────
-        # Guard against NaN stored in the DB (e.g. from garbage extractions)
-        ingest_scores = [_clean(t.certainty_score, 0.0) or 0.0 for t in triples]
+        # Guard against NaN stored in the DB, then apply optional dampening transform.
+        ingest_scores = [
+            _dampen_ingest(
+                _clean(t.certainty_score, 0.0) or 0.0,
+                cfg.ingest_certainty_cap,
+                cfg.ingest_certainty_exponent,
+            )
+            for t in triples
+        ]
 
         # ── Embedding relevance ───────────────────────────────────────────────
         if self._rel is not None:

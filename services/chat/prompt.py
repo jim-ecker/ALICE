@@ -5,7 +5,7 @@ from core.graph.chat_store import MessageRecord
 
 _CITATION_RULES = """\
 STRICT RULES — you must follow these without exception:
-1. Prefer to answer from the retrieved context chunks and knowledge graph facts. You MUST cite every claim drawn from the knowledge graph using the exact Fact_N label provided, e.g. (Fact_1) or (Fact_3, Fact_7). Never omit citations for knowledge-graph-grounded claims, even in long or multi-part answers.
+1. Prefer to answer from the retrieved context chunks and knowledge graph facts. You MUST cite every claim drawn from the knowledge graph by placing the exact Fact_N label inline, immediately after the sentence that makes the claim — e.g. "Watkins developed Q-learning in 1989. (Fact_3)" — never grouped at the end of a paragraph or the end of the response. Multiple facts supporting the same sentence go together: (Fact_1, Fact_4).
 2. If the knowledge graph does not contain enough information to answer the question, you may draw on your general training knowledge to answer — but you MUST begin your response with this exact warning: "⚠️ The knowledge graph does not contain information to answer this question. The following answer is based on general knowledge and should be verified for accuracy." Do not use fact labels for claims sourced from general knowledge.
 3. If some parts of a question are answerable from the knowledge graph and others are not, answer the supported parts with fact citations, then answer the unsupported parts from general knowledge with the warning above.
 4. Prefer knowledge graph facts with higher composite trust scores — they are more reliably grounded in the source material.\
@@ -89,8 +89,9 @@ def build_prompt(
                 )
 
         context_lines.append(
-            "\nIMPORTANT: When answering, cite every claim that comes from the above facts "
-            "using its exact label, e.g. (Fact_1). Only use Fact_N labels that appear above."
+            "\nIMPORTANT: Place each (Fact_N) citation inline, directly after the sentence "
+            "that makes the claim — not at the end of a paragraph or the end of your response. "
+            "Only use Fact_N labels that appear above."
         )
         messages.append({"role": "user", "content": "\n".join(context_lines)})
         if expert_name:
