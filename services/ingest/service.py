@@ -15,11 +15,16 @@ def _chunk_document(args: tuple) -> tuple:
     from services.ingest.chunker import DoclingChunker
     from services.ingest.pipeline import IngestionPipeline
 
-    path, title, citation_url = args
-    pipeline = IngestionPipeline(parser=DoclingParser(), chunker=DoclingChunker())
-    source = make_source_document(path, source_url=citation_url)
-    chunks = pipeline.run(source)
-    path.unlink(missing_ok=True)
+    path, title, citation_url, delete_after = args
+    if path.suffix.lower() in (".xlsx", ".xls"):  # Excel — bypasses Docling
+        from services.ingest.excel import chunk_excel
+        source, chunks = chunk_excel(path, source_url=citation_url)
+    else:
+        pipeline = IngestionPipeline(parser=DoclingParser(), chunker=DoclingChunker())
+        source = make_source_document(path, source_url=citation_url)
+        chunks = pipeline.run(source)
+    if delete_after:
+        path.unlink(missing_ok=True)
     return source, chunks, title, citation_url
 
 
@@ -61,6 +66,7 @@ class Ingest:
         center: str | None = None,
         max_docs: int = 20,
         author: str | None = None,
+        offset: int | None = None,
         on_download: "callable[[str], None] | None" = None,
         on_downloads_complete: "callable[[list[tuple[str, str]]], None] | None" = None,
         on_chunk: "callable[[str, int], None] | None" = None,
@@ -70,6 +76,9 @@ class Ingest:
         on_download(title) is called after each PDF is downloaded.
         on_downloads_complete([(title, url), ...]) is called after all PDFs are downloaded, before chunking.
         on_chunk(title, chunk_count) is called after each document is chunked.
+
+        offset: if None, the stored next-offset for this query is used and auto-advanced after the run.
+                If provided explicitly, that value is used and the stored offset is updated to offset+max_docs.
         """
         from services.ingest.ntrs import search, download_pdf, CENTER_CODES
         from services.ingest.parser import DoclingParser, make_source_document
@@ -80,62 +89,96 @@ class Ingest:
         self._downloads_dir.mkdir(parents=True, exist_ok=True)
 
         center_code = CENTER_CODES.get(center.lower()) if center else None
-        records = search(query, center=center_code, max_docs=max_docs, author=author)
-        if not records:
-            return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
 
-        # Parallel download
-        downloaded: list[tuple[Path, str, str]] = []
-        with ThreadPoolExecutor(max_workers=min(10, len(records))) as executor:
-            futures = {executor.submit(download_pdf, record, self._downloads_dir): record for record in records}
-            for future in as_completed(futures):
-                record = futures[future]
-                try:
-                    dest = future.result()
-                    downloaded.append((dest, record.title, record.citation_url))
-                    if on_download:
-                        on_download(record.title)
-                except Exception as e:
-                    print(f"Failed to download '{record.title[:60]}...': {e}")
-
-        if not downloaded:
-            return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
-
-        if on_downloads_complete:
-            on_downloads_complete([(title, url) for _, title, url in downloaded])
-
-        # Parallel chunking — ThreadPoolExecutor: threads share one copy of the Docling
-        # model weights in the main process (no per-worker reload, no shutdown hang).
-        # KuzuStore uses a fixed 2 GB buffer pool so it opens cleanly alongside Docling.
-        # We write each document to the store as soon as it is chunked so there is no
-        # silent pause after the progress bar reaches 100%.
+        import hashlib
         total_chunks = 0
         doc_details = []
+        query_key = f"{query}|{center or ''}|{author or ''}"
         with KuzuStore(self._db_path) as store:
-            with ThreadPoolExecutor(max_workers=min(self._chunk_workers, len(downloaded))) as executor:
-                futures2 = {
-                    executor.submit(_chunk_document, (path, title, url)): (path, title, url)
-                    for path, title, url in downloaded
-                }
-                for future in as_completed(futures2):
+            # Resolve offset: use stored value if not explicitly provided
+            if offset is None:
+                offset = store.get_ingest_offset(query_key)
+
+            records = search(query, center=center_code, max_docs=max_docs, author=author, offset=offset)
+            if not records:
+                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+
+            # Pre-filter: skip records whose citation_url is already in the graph,
+            # avoiding unnecessary network downloads entirely.
+            records_to_fetch = []
+            for record in records:
+                if store.document_exists_by_url(record.citation_url):
+                    print(f"Skipping '{record.title[:60]}' (already in graph)")
+                    if on_chunk:
+                        on_chunk(record.title, 0)
+                else:
+                    records_to_fetch.append(record)
+
+            # Advance stored offset by max_docs regardless of how many were new,
+            # so the next run fetches the next page of NTRS results.
+            store.set_ingest_offset(query_key, offset + max_docs)
+
+            if not records_to_fetch:
+                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+
+            # Parallel download — only records not already in graph
+            downloaded: list[tuple[Path, str, str]] = []
+            with ThreadPoolExecutor(max_workers=min(10, len(records_to_fetch))) as executor:
+                futures = {executor.submit(download_pdf, record, self._downloads_dir): record for record in records_to_fetch}
+                for future in as_completed(futures):
+                    record = futures[future]
                     try:
-                        source, chunks, title, citation_url = future.result()
-                        store.write_document(source.id, source.source_url, source.doc_type, title)
-                        for chunk in chunks:
-                            store.write_chunk(
-                                id=chunk.id,
-                                document_id=chunk.provenance.document_id,
-                                content=chunk.content,
-                                section_heading=chunk.provenance.section_heading,
-                                page_number=chunk.provenance.page_number,
-                            )
-                        total_chunks += len(chunks)
-                        doc_details.append((title, citation_url, len(chunks)))
-                        if on_chunk:
-                            on_chunk(title, len(chunks))
+                        dest = future.result()
+                        downloaded.append((dest, record.title, record.citation_url))
+                        if on_download:
+                            on_download(record.title)
                     except Exception as e:
-                        _, title, _ = futures2[future]
-                        print(f"Failed to chunk '{title[:60]}...': {e}")
+                        print(f"Failed to download '{record.title[:60]}...': {e}")
+
+            if not downloaded:
+                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+
+            if on_downloads_complete:
+                on_downloads_complete([(title, url) for _, title, url in downloaded])
+
+            # Parallel chunking — ThreadPoolExecutor: threads share one copy of the Docling
+            # model weights in the main process (no per-worker reload, no shutdown hang).
+            # Belt-and-suspenders: also check by SHA256 hash in case the URL changed.
+            to_chunk: list[tuple[Path, str, str]] = []
+            for path, title, url in downloaded:
+                doc_id = hashlib.sha256(path.read_bytes()).hexdigest()
+                if store.document_exists(doc_id):
+                    print(f"Skipping '{title[:60]}' (already ingested)")
+                    if on_chunk:
+                        on_chunk(title, 0)
+                else:
+                    to_chunk.append((path, title, url))
+
+            if to_chunk:
+                with ThreadPoolExecutor(max_workers=min(self._chunk_workers, len(to_chunk))) as executor:
+                    futures2 = {
+                        executor.submit(_chunk_document, (path, title, url, True)): (path, title, url)
+                        for path, title, url in to_chunk
+                    }
+                    for future in as_completed(futures2):
+                        try:
+                            source, chunks, title, citation_url = future.result()
+                            store.write_document(source.id, source.source_url, source.doc_type, title)
+                            for chunk in chunks:
+                                store.write_chunk(
+                                    id=chunk.id,
+                                    document_id=chunk.provenance.document_id,
+                                    content=chunk.content,
+                                    section_heading=chunk.provenance.section_heading,
+                                    page_number=chunk.provenance.page_number,
+                                )
+                            total_chunks += len(chunks)
+                            doc_details.append((title, citation_url, len(chunks)))
+                            if on_chunk:
+                                on_chunk(title, len(chunks))
+                        except Exception as e:
+                            _, title, _ = futures2[future]
+                            print(f"Failed to chunk '{title[:60]}...': {e}")
 
         return DownloadResult(docs_added=len(doc_details), chunks_added=total_chunks, doc_details=doc_details)
 
@@ -228,15 +271,31 @@ class Ingest:
         return total_triples
 
     def build_index(self) -> EmbeddingIndex:
-        """Build and optionally save the embedding index."""
-        from core.embeddings.builder import build_index
+        """Incrementally update (or cold-build) the embedding index.
+
+        If an embeddings file already exists, only chunks missing from that
+        index are embedded; the rest are reused as-is.  Prints a one-line
+        stats summary: total / already_indexed / newly embedded.
+        """
+        from core.embeddings.builder import update_index
+        from core.embeddings.index import EmbeddingIndex
         from core.graph import KuzuStore
 
         if self._embed_client is None:
             raise ValueError("embed_client is required for building the index")
 
+        existing: EmbeddingIndex | None = None
+        if self._embeddings_path and Path(self._embeddings_path).exists():
+            existing = EmbeddingIndex.load(self._embeddings_path)
+
         with KuzuStore(self._db_path) as store:
-            index = build_index(store, self._embed_client)
+            index, stats = update_index(store, self._embed_client, existing)
+
+        print(
+            f"Embedding index: {stats['total']} total  |  "
+            f"{stats['already_indexed']} already indexed  |  "
+            f"{stats['new_embedded']} newly embedded"
+        )
         if self._embeddings_path:
             index.save(self._embeddings_path)
         return index
@@ -263,7 +322,7 @@ class Ingest:
                 futures = {
                     executor.submit(
                         _chunk_document,
-                        (path, meta.get("title") or path.stem, f"file://{path.absolute()}"),
+                        (path, meta.get("title") or path.stem, f"file://{path.absolute()}", False),
                     ): (path, meta)
                     for path, meta in confirmed_docs
                 }
@@ -308,6 +367,7 @@ class Ingest:
         center: str | None = None,
         max_docs: int = 20,
         author: str | None = None,
+        offset: int | None = None,
         dashboard_port: int = 8765,
         on_download=None,
         on_downloads_complete=None,
@@ -317,7 +377,7 @@ class Ingest:
     ) -> tuple[IngestResult, EmbeddingIndex]:
         """End-to-end pipeline: download -> extract -> build index."""
         dl = self.download(
-            query, center=center, max_docs=max_docs, author=author,
+            query, center=center, max_docs=max_docs, author=author, offset=offset,
             on_download=on_download,
             on_downloads_complete=on_downloads_complete,
             on_chunk=on_chunk,

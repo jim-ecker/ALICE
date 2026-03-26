@@ -133,7 +133,25 @@ CHAT_HTML = r"""<!DOCTYPE html>
   .citation-location { font-size: 11px; color: var(--text2); margin-bottom: 4px; }
   .citation-excerpt { color: var(--text2); font-style: italic; margin-bottom: 4px;
                        overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
-                       -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+                       -webkit-line-clamp: 3; -webkit-box-orient: vertical; cursor: pointer; }
+  .citation-excerpt.expanded {
+    display: block; overflow: visible;
+    -webkit-line-clamp: unset; -webkit-box-orient: unset;
+  }
+  .expand-btn {
+    background: none; border: none; padding: 0;
+    color: var(--accent); font-size: 10px; cursor: pointer;
+    opacity: 0.7; margin-top: 2px;
+  }
+  .expand-btn:hover { opacity: 1; }
+  .open-page-link {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; color: var(--accent); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px;
+    cursor: pointer;
+  }
+  .open-page-link:hover { border-color: var(--accent); }
+  .open-page-link.loading { opacity: 0.5; cursor: wait; }
   .citation-triples { display: flex; flex-direction: column; gap: 4px; }
   .triple-row { font-size: 11px; color: var(--text2); border-radius: 4px; padding: 2px 4px; transition: background 0.3s; }
   .triple-row.fact-highlight { animation: fact-flash 1.2s ease-out; }
@@ -273,6 +291,31 @@ let switchingExpert = null;  // slug currently being loaded, or null
 // Utility
 const $  = id => document.getElementById(id);
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+// ── NTRS PDF helpers ──────────────────────────────────────────────────────────
+const _ntrsPdfCache = {};
+
+async function _fetchNtrsPdfUrl(citationUrl) {
+  const m = citationUrl.match(/ntrs\.nasa\.gov\/citations\/(\d+)/);
+  if (!m) { console.warn('[ALICE pdf] citationUrl does not contain NTRS ID:', citationUrl); return null; }
+  const id = m[1];
+  if (_ntrsPdfCache[id]) { console.log('[ALICE pdf] cache hit for', id, _ntrsPdfCache[id]); return _ntrsPdfCache[id]; }
+  try {
+    const apiUrl = window.location.origin + '/api/ntrs-pdf-url?id=' + id;
+    console.log('[ALICE pdf] fetching via proxy:', apiUrl);
+    const res = await fetch(apiUrl);
+    const data = await res.json();
+    console.log('[ALICE pdf] resolved PDF URL:', data.url);
+    _ntrsPdfCache[id] = data.url;
+    return data.url;
+  } catch (e) { console.error('[ALICE pdf] fetch error:', e); return null; }
+}
+
+function _openInPdfJs(pdfUrl, page) {
+  const viewerUrl = window.location.origin + '/api/pdf-proxy?url=' + encodeURIComponent(pdfUrl) + '#page=' + page;
+  console.log('[ALICE pdf] opening PDF via proxy:', viewerUrl);
+  window.open(viewerUrl, '_blank');
+}
 
 // Auto-resize textarea
 $('msg-input').addEventListener('input', function() {
@@ -523,8 +566,6 @@ function trustPill(label, value, cssClass, isPercent=true) {
 function buildCitationsHTML(citations) {
   if (!citations || !citations.length) return '';
   const parts = citations.map(c => {
-    const page = c.page_number != null ? ` p.${c.page_number}` : '';
-    const heading = c.section_heading ? ` §"${esc(c.section_heading)}"` : '';
     const triplesHTML = (c.triples || []).map(t => {
       const trustBars = `<div class="trust-bar-row">
         ${trustPill('trust', t.composite_trust, 'pill-composite')}
@@ -541,11 +582,33 @@ function buildCitationsHTML(citations) {
         ${trustBars}
       </div>`;
     }).join('');
-    const locationParts = [page.trim(), heading.trim()].filter(Boolean).join(' ');
+    const isLocal = c.document_url && c.document_url.startsWith('file://');
+    const isNtrs  = c.document_url && c.document_url.includes('ntrs.nasa.gov/citations/');
+    const badgeId = 'pb-' + Math.random().toString(36).slice(2);
+    let pageLink = '';
+    if (c.page_number != null) {
+      if (isLocal) {
+        const localUrl = c.document_url + '#page=' + c.page_number;
+        pageLink = `<a class="open-page-link" href="${esc(localUrl)}" target="_blank" rel="noopener">⧉ p.${c.page_number}</a>`;
+      } else if (isNtrs) {
+        pageLink = `<span class="open-page-link" id="${badgeId}" data-citation-url="${esc(c.document_url)}" data-page="${c.page_number}">⧉ p.${c.page_number}</span>`;
+      } else {
+        pageLink = `<span style="font-size:10px;color:var(--text2)">p.${c.page_number}</span>`;
+      }
+    }
+    const headingText = c.section_heading
+      ? `<span style="font-size:10px;color:var(--text2)">§ ${esc(c.section_heading)}</span>`
+      : '';
+    const locationHTML = (pageLink || headingText)
+      ? `<div class="citation-location" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">${pageLink}${headingText}</div>`
+      : '';
+    const eid = 'exc-' + Math.random().toString(36).slice(2);
+    const excerptHTML = `<div class="citation-excerpt" id="${eid}">${esc(c.content)}</div>
+      <button class="expand-btn" data-target="${eid}">▼ more</button>`;
     return `<div class="citation-card">
       <div class="citation-source">${c.document_url ? `<a href="${esc(c.document_url)}" target="_blank" rel="noopener" class="doc-link">${esc(c.document_title)}</a>` : esc(c.document_title)}</div>
-      ${locationParts ? `<div class="citation-location">${locationParts}</div>` : ''}
-      <div class="citation-excerpt">${esc(c.content)}</div>
+      ${locationHTML}
+      ${excerptHTML}
       ${triplesHTML ? `<div class="citation-triples">${triplesHTML}</div>` : ''}
     </div>`;
   });
@@ -672,6 +735,45 @@ async function sendMessage() {
     input.focus();
   }
 }
+
+// ── Citation interactions ────────────────────────────────────────────────────
+
+// Expand/collapse chunk text
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.expand-btn');
+  if (!btn) return;
+  const el = document.getElementById(btn.dataset.target);
+  if (!el) return;
+  btn.textContent = el.classList.toggle('expanded') ? '▲ less' : '▼ more';
+});
+
+// Prefetch NTRS PDF URL on hover
+document.addEventListener('mouseover', e => {
+  const badge = e.target.closest('.open-page-link[data-citation-url]');
+  if (badge && !badge.dataset.pdfUrl && !badge.dataset.fetching) {
+    badge.dataset.fetching = '1';
+    _fetchNtrsPdfUrl(badge.dataset.citationUrl).then(url => {
+      if (url) badge.dataset.pdfUrl = url;
+    });
+  }
+});
+
+// Open PDF.js viewer on click
+document.addEventListener('click', e => {
+  const badge = e.target.closest('.open-page-link[data-citation-url]');
+  if (!badge) return;
+  const page = badge.dataset.page;
+  if (badge.dataset.pdfUrl) {
+    _openInPdfJs(badge.dataset.pdfUrl, page);
+  } else {
+    badge.classList.add('loading');
+    _fetchNtrsPdfUrl(badge.dataset.citationUrl).then(url => {
+      badge.classList.remove('loading');
+      if (url) _openInPdfJs(url, page);
+      else window.open(badge.dataset.citationUrl, '_blank');
+    });
+  }
+});
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {

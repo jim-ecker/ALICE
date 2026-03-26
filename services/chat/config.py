@@ -9,9 +9,9 @@ from core.scoring.composite import ScoringConfig
 
 @dataclass
 class ChatConfig:
-    db_path: Path = Path("chat.db")
+    db_path: Path = Path("data/chat/chat.db")
     embeddings_path: Path = Path("chat.embeddings.npz")
-    experts_dir: Path = Path("experts")
+    experts_dir: Path = Path("data/experts")
     host: str = "127.0.0.1"
     port: int = 8766
     history_turns: int = 10
@@ -45,9 +45,9 @@ def load_chat_config(
     chat_llm_raw = data.get("chat_llm", None)
 
     chat_cfg = ChatConfig(
-        db_path=Path(chat_raw.get("db_path", "chat.db")),
+        db_path=Path(chat_raw.get("db_path", "data/chat/chat.db")),
         embeddings_path=Path(chat_raw.get("embeddings_path", "chat.embeddings.npz")),
-        experts_dir=Path(chat_raw.get("experts_dir", "experts")),
+        experts_dir=Path(chat_raw.get("experts_dir", "data/experts")),
         host=chat_raw.get("host", "127.0.0.1"),
         port=int(chat_raw.get("port", 8766)),
         history_turns=int(chat_raw.get("history_turns", 10)),

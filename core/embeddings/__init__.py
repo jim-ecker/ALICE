@@ -1,5 +1,5 @@
 from .client import EmbeddingsClient, EmbeddingsConfig
 from .index import EmbeddingIndex
-from .builder import build_index
+from .builder import build_index, update_index
 
-__all__ = ["EmbeddingsClient", "EmbeddingsConfig", "EmbeddingIndex", "build_index"]
+__all__ = ["EmbeddingsClient", "EmbeddingsConfig", "EmbeddingIndex", "build_index", "update_index"]

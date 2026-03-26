@@ -6,6 +6,13 @@ from .base import ChunkRecord, DocumentChunkCount, GraphStore
 
 _SCHEMA = [
     """
+    CREATE NODE TABLE IF NOT EXISTS IngestState(
+        query_key STRING,
+        next_offset INT64,
+        PRIMARY KEY (query_key)
+    )
+    """,
+    """
     CREATE NODE TABLE IF NOT EXISTS Document(
         id STRING,
         source_url STRING,
@@ -102,6 +109,37 @@ class KuzuStore(GraphStore):
             WHERE c.extracted_at IS NULL
             SET c.extracted_at = '2000-01-01T00:00:00+00:00'
             """
+        )
+
+    def document_exists(self, id: str) -> bool:
+        """Return True if a Document node with this ID is already in the graph."""
+        r = self._conn.execute(
+            "MATCH (d:Document {id: $id}) RETURN count(d)",
+            parameters={"id": id},
+        )
+        return r.get_next()[0] > 0
+
+    def document_exists_by_url(self, source_url: str) -> bool:
+        """Return True if a Document with this source_url is already in the graph."""
+        r = self._conn.execute(
+            "MATCH (d:Document {source_url: $url}) RETURN count(d)",
+            parameters={"url": source_url},
+        )
+        return r.get_next()[0] > 0
+
+    def get_ingest_offset(self, query_key: str) -> int:
+        """Return the stored next-offset for this query key (0 if never run before)."""
+        r = self._conn.execute(
+            "MATCH (s:IngestState {query_key: $k}) RETURN s.next_offset",
+            parameters={"k": query_key},
+        )
+        return r.get_next()[0] if r.has_next() else 0
+
+    def set_ingest_offset(self, query_key: str, next_offset: int) -> None:
+        """Persist the next-offset for this query key."""
+        self._conn.execute(
+            "MERGE (s:IngestState {query_key: $k}) SET s.next_offset = $off",
+            parameters={"k": query_key, "off": next_offset},
         )
 
     def write_document(self, id: str, source_url: str | None, doc_type: str, title: str = "") -> None:

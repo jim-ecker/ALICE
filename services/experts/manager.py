@@ -56,7 +56,7 @@ class ExpertRegistry:
 
     def list(self) -> list[ExpertMeta]:
         metas = []
-        for meta_file in sorted(self.experts_dir.glob("*.meta.json")):
+        for meta_file in sorted(self.experts_dir.glob("*/*.meta.json")):
             try:
                 with open(meta_file) as f:
                     metas.append(ExpertMeta.from_dict(json.load(f)))
@@ -65,7 +65,7 @@ class ExpertRegistry:
         return metas
 
     def get(self, slug: str) -> ExpertMeta | None:
-        meta_file = self.experts_dir / f"{slug}.meta.json"
+        meta_file = self.experts_dir / slug / f"{slug}.meta.json"
         if not meta_file.exists():
             return None
         with open(meta_file) as f:
@@ -96,16 +96,13 @@ class ExpertRegistry:
         return meta
 
     def delete(self, slug: str) -> None:
-        for suffix in (".db", ".embeddings.npz", ".meta.json"):
-            p = self.experts_dir / f"{slug}{suffix}"
-            if p.exists():
-                if p.is_dir():
-                    shutil.rmtree(p)
-                else:
-                    p.unlink()
+        expert_dir = self.experts_dir / slug
+        if expert_dir.exists():
+            shutil.rmtree(expert_dir)
 
     def _write(self, meta: ExpertMeta) -> None:
-        meta_file = self.experts_dir / f"{meta.slug}.meta.json"
+        (self.experts_dir / meta.slug).mkdir(parents=True, exist_ok=True)
+        meta_file = self.experts_dir / meta.slug / f"{meta.slug}.meta.json"
         with open(meta_file, "w") as f:
             json.dump(meta.to_dict(), f, indent=2)
 

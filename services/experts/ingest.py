@@ -27,9 +27,11 @@ def ingest_for_expert(
     from services.ingest.service import Ingest
 
     experts_dir = Path(experts_dir)
-    db_path = experts_dir / f"{meta.slug}.db"
-    embeddings_path = experts_dir / f"{meta.slug}.embeddings.npz"
-    downloads_dir = experts_dir / "downloads"
+    expert_dir = experts_dir / meta.slug
+    expert_dir.mkdir(parents=True, exist_ok=True)
+    db_path = expert_dir / f"{meta.slug}.db"
+    embeddings_path = expert_dir / f"{meta.slug}.embeddings.npz"
+    downloads_dir = expert_dir / "downloads"
 
     ingest_svc = Ingest(
         db_path=db_path,

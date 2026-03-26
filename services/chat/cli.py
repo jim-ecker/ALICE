@@ -39,6 +39,7 @@ def ingest(
     query: str = typer.Argument(..., help="Search query for NASA NTRS (e.g. 'robotics')"),
     db_path: Path = typer.Option(Path("chat.db"), "--db-path", help="Path to the chat KuzuDB database"),
     max_docs: int = typer.Option(20, help="Maximum number of documents to ingest"),
+    offset: Optional[int] = typer.Option(None, help="Override the starting NTRS result index (auto-tracked if omitted)"),
     location: Optional[str] = typer.Option(None, help="NASA center name (e.g. 'langley')"),
     model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
     backend: Optional[str] = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
@@ -145,6 +146,7 @@ def ingest(
         query,
         center=location,
         max_docs=max_docs,
+        offset=offset,
         dashboard_port=dashboard_port,
         on_download=on_download,
         on_downloads_complete=on_downloads_complete,
@@ -192,7 +194,7 @@ def ingest_folder(
     from core.llm.config import resolve_config
     from services.chat.config import load_chat_config
     from services.chat.service import Chat
-    from services.ingest.metadata import extract_pdf_metadata, infer_missing_metadata
+    from services.ingest.metadata import extract_excel_metadata, extract_pdf_metadata, infer_missing_metadata
 
     if folder is None:
         chat_cfg, _, _, _ = load_chat_config()
@@ -209,13 +211,15 @@ def ingest_folder(
         typer.echo(f"Not a directory: {folder}", err=True)
         raise typer.Exit(1)
 
-    pattern = "**/*.pdf" if recursive else "*.pdf"
-    pdfs = sorted(folder.glob(pattern))
-    if not pdfs:
-        typer.echo(f"No PDF files found in {folder}")
+    _EXCEL_EXTS = {".xlsx", ".xls"}
+    _ALL_EXTS = ("pdf", "pptx", "docx", "html", "htm", "md", "adoc", "xlsx", "xls")
+    _exts = tuple(f"**/*.{e}" for e in _ALL_EXTS) if recursive else tuple(f"*.{e}" for e in _ALL_EXTS)
+    all_files = sorted(p for ext in _exts for p in folder.glob(ext))
+    if not all_files:
+        typer.echo(f"No supported files found in {folder} (pdf, pptx, docx, html, md, adoc, xlsx, xls)")
         raise typer.Exit(1)
 
-    typer.echo(f"Found {len(pdfs)} PDF(s) in {folder}")
+    typer.echo(f"Found {len(all_files)} file(s) in {folder}")
 
     llm_cfg = resolve_config(
         cli_model=model,
@@ -225,25 +229,28 @@ def ingest_folder(
         cli_workers=workers,
     )
 
-    # Phase 1: extract PDF header metadata for all documents
-    typer.echo("Extracting PDF metadata...")
+    # Phase 1: extract metadata for all documents
+    typer.echo("Extracting metadata...")
     all_meta = {}
-    for pdf in pdfs:
-        all_meta[pdf] = extract_pdf_metadata(pdf)
+    for f in all_files:
+        if f.suffix.lower() in _EXCEL_EXTS:
+            all_meta[f] = extract_excel_metadata(f)
+        else:
+            all_meta[f] = extract_pdf_metadata(f)
 
-    # Phase 2: LLM inference for docs with missing title or authors
-    needs_inference = [pdf for pdf in pdfs if not all_meta[pdf].get("title") or not all_meta[pdf].get("authors")]
+    # Phase 2: LLM inference for docs with missing title or authors (PDFs only)
+    needs_inference = [f for f in all_files if f.suffix.lower() not in _EXCEL_EXTS and (not all_meta[f].get("title") or not all_meta[f].get("authors"))]
     if needs_inference and not no_verify:
         typer.echo(f"{len(needs_inference)} document(s) have missing metadata — loading LLM for inference...")
         from core.llm.factory import create_backend
         llm = create_backend(llm_cfg)
-        for pdf in needs_inference:
-            all_meta[pdf] = infer_missing_metadata(all_meta[pdf], llm)
+        for f in needs_inference:
+            all_meta[f] = infer_missing_metadata(all_meta[f], llm)
 
     # Phase 3: Interactive per-document metadata verification
     confirmed_docs: list[tuple[Path, dict]] = []
 
-    for pdf in pdfs:
+    for pdf in all_files:
         meta = all_meta[pdf]
         inferred = meta.get("_inferred_fields", set())
 
@@ -289,7 +296,7 @@ def ingest_folder(
     tbl.add_column("Title", ratio=1)
     tbl.add_column("Authors")
     tbl.add_column("Year", justify="right")
-    for pdf, meta in confirmed_docs:
+    for pdf, meta in confirmed_docs:  # noqa: redefined-loop-var (pdf reused for display)
         tbl.add_row(pdf.name, meta.get("title", ""), meta.get("authors", ""), meta.get("year", ""))
     rprint(tbl)
 
@@ -304,7 +311,7 @@ def ingest_folder(
 
     chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
     chunk_progress.start()
-    chunk_task = chunk_progress.add_task("Chunking PDFs...", total=len(confirmed_docs))
+    chunk_task = chunk_progress.add_task("Chunking files...", total=len(confirmed_docs))
 
     extract_progress = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn())
     extract_started = [False]

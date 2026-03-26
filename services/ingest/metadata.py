@@ -46,6 +46,25 @@ def extract_pdf_metadata(pdf_path: Path) -> dict:
     return meta
 
 
+def extract_excel_metadata(path: Path) -> dict:
+    """Extract metadata from an Excel workbook's built-in properties."""
+    import openpyxl
+    meta: dict[str, str] = {"title": "", "authors": "", "year": "", "abstract": ""}
+    try:
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        props = wb.properties
+        meta["title"] = props.title or ""
+        meta["authors"] = props.creator or ""
+        if props.created:
+            meta["year"] = str(props.created.year)
+        wb.close()
+    except Exception:
+        pass
+    if not meta["title"]:
+        meta["title"] = path.stem
+    return meta
+
+
 def infer_missing_metadata(partial_meta: dict, llm) -> dict:
     """Use the LLM to fill in missing metadata fields from first-page text.
 

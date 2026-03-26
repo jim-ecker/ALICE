@@ -30,7 +30,13 @@ backups/
 diagnose_retrieval.py
 
 # Reference PDFs (not redistributable)
-notes/*.pdf
+notes/
+
+# Development Tests
+tests/
+
+# Local ingest folder (this can be set by user)
+ingest-folder/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/

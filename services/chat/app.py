@@ -357,4 +357,42 @@ def create_app(state, chat, cfg) -> FastAPI:
         await asyncio.to_thread(chat.switch_to_chat)
         return {"slug": None, "name": None}
 
+    @app.get("/api/ntrs-pdf-url")
+    async def ntrs_pdf_url(id: str):
+        """Resolve the PDF download URL for an NTRS citation ID (server-side, bypasses CORS)."""
+        import requests as _req
+        from fastapi.responses import JSONResponse
+        if not id.isdigit():
+            raise HTTPException(status_code=400, detail="Invalid NTRS ID")
+        def _fetch():
+            r = _req.get(f"https://ntrs.nasa.gov/api/citations/{id}", timeout=15)
+            r.raise_for_status()
+            return r.json()
+        data = await asyncio.to_thread(_fetch)
+        downloads = data.get("downloads") or []
+        pdf = next((d for d in downloads if d.get("links", {}).get("pdf")), None)
+        url = ("https://ntrs.nasa.gov" + pdf["links"]["pdf"]) if pdf else None
+        return JSONResponse({"url": url})
+
+    @app.get("/api/pdf-proxy")
+    async def pdf_proxy(url: str):
+        """Proxy NTRS PDFs so the hosted PDF.js viewer can load them (CORS bypass)."""
+        import requests as _req
+        from fastapi.responses import Response as _Response
+        if not (url.startswith("https://ntrs.nasa.gov/api/citations/") and ".pdf" in url):
+            raise HTTPException(status_code=400, detail="Only NTRS PDF URLs are supported")
+        def _fetch():
+            r = _req.get(url, timeout=60)
+            r.raise_for_status()
+            return r.content
+        content = await asyncio.to_thread(_fetch)
+        return _Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Content-Disposition": "inline",
+            },
+        )
+
     return app

@@ -184,10 +184,10 @@ class Chat:
         meta = registry.get(slug)
         if meta is None:
             raise FileNotFoundError(f"Expert not found: {slug}")
-        db_path = Path(experts_dir) / f"{slug}.db"
+        db_path = Path(experts_dir) / slug / f"{slug}.db"
         if not db_path.exists():
             raise FileNotFoundError(f"Expert database not found: {db_path}")
-        emb_path = Path(experts_dir) / f"{slug}.embeddings.npz"
+        emb_path = Path(experts_dir) / slug / f"{slug}.embeddings.npz"
 
         self.close()
         new_state = self._build_state(db_path, emb_path)
@@ -202,6 +202,7 @@ class Chat:
         *,
         center: str | None = None,
         max_docs: int = 20,
+        offset: int | None = None,
         dashboard_port: int = 8765,
         on_download=None,
         on_downloads_complete=None,
@@ -232,6 +233,7 @@ class Chat:
             query,
             center=center,
             max_docs=max_docs,
+            offset=offset,
             dashboard_port=dashboard_port,
             on_download=on_download,
             on_downloads_complete=on_downloads_complete,

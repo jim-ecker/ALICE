@@ -36,9 +36,10 @@ def search(
     center: str | None = None,
     max_docs: int = 20,
     author: str | None = None,
+    offset: int = 0,
 ) -> list[NTRSRecord]:
     records = []
-    page_from = 0
+    page_from = offset
     page_size = 100
 
     while len(records) < max_docs:
