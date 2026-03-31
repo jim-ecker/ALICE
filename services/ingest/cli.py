@@ -95,7 +95,7 @@ def download(
     max_docs: int = typer.Option(20, help="Maximum number of documents to download"),
     output_dir: Path = typer.Option(Path("downloads"), help="Directory to save downloaded PDFs"),
     workers: int = typer.Option(10, help="Number of parallel download workers"),
-    chunk_workers: int = typer.Option(4, help="Number of parallel Docling chunking processes"),
+    chunk_workers: int = typer.Option(4, help="Number of parallel Docling chunking workers"),
     db_path: Path = typer.Option(Path("alice.db"), help="Path to the Kuzu graph database"),
 ):
     """Download research papers from NASA NTRS."""
@@ -106,7 +106,12 @@ def download(
         typer.echo(f"Unknown location '{location}'. Valid options: {', '.join(CENTER_CODES)}", err=True)
         raise typer.Exit(1)
 
-    ingest = Ingest(db_path=db_path, downloads_dir=output_dir, chunk_workers=chunk_workers)
+    ingest = Ingest(
+        db_path=db_path,
+        downloads_dir=output_dir,
+        download_workers=workers,
+        chunk_workers=chunk_workers,
+    )
     download_and_display(ingest, query, location=location, max_docs=max_docs)
 
 
@@ -193,7 +198,7 @@ def reextract_document(
 def extract(
     db_path: Path = typer.Option(Path("alice.db"), help="Path to the Kuzu graph database"),
     model: str | None = typer.Option(None, help="LLM model name (overrides alice.toml)"),
-    backend: str | None = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
+    backend: str | None = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
     base_url: str | None = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
     api_key: str | None = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
     min_certainty: float = typer.Option(0.5, help="Minimum certainty score for triples to be stored"),

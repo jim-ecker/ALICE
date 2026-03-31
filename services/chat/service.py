@@ -42,9 +42,11 @@ class Chat:
         port: int | None = None,
     ) -> None:
         self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._chat_cfg, self._embed_cfg, self._scoring_cfg, chat_llm_cfg = load_chat_config(
             self._db_path.parent
         )
+        self._default_chat_db_path = self._chat_cfg.db_path
         self._chat_cfg.db_path = self._db_path
         # [chat_llm] in alice.toml overrides the caller-supplied llm_cfg for chat responses
         if chat_llm_cfg is not None and llm_cfg is None:
@@ -135,10 +137,22 @@ class Chat:
     def _setup(self) -> None:
         """Eagerly initialise all service objects (called by create_app / serve)."""
         db_path = self._chat_cfg.db_path
-        emb_path = db_path.parent / self._chat_cfg.embeddings_path
+        emb_path = self._resolve_embeddings_path(db_path)
         state = self._build_state(db_path, emb_path)
         self._db = state.db
         self._state = state
+
+    def _resolve_embeddings_path(self, db_path: Path) -> Path:
+        """Return the embeddings file associated with a database path.
+
+        If the caller is using the configured chat database name, preserve the
+        configured embeddings filename. For custom database paths, derive a
+        sibling <stem>.embeddings.npz file so alternate graphs stay isolated.
+        """
+        configured_db = self._default_chat_db_path
+        if db_path == configured_db:
+            return db_path.parent / self._chat_cfg.embeddings_path
+        return db_path.with_name(f"{db_path.stem}.embeddings.npz")
 
     def _update_state_from(self, new_state: ServiceState) -> None:
         """Update self._state fields in-place so FastAPI route closures see new values."""
@@ -165,7 +179,7 @@ class Chat:
         """Hot-swap back to the standard chat.db without restarting the server."""
         self.close()
         db_path = self._chat_cfg.db_path
-        emb_path = db_path.parent / self._chat_cfg.embeddings_path
+        emb_path = self._resolve_embeddings_path(db_path)
         new_state = self._build_state(db_path, emb_path)
         self._update_state_from(new_state)
         self._state.active_expert = None
@@ -203,6 +217,8 @@ class Chat:
         center: str | None = None,
         max_docs: int = 20,
         offset: int | None = None,
+        download_workers: int = 10,
+        chunk_workers: int = 4,
         dashboard_port: int = 8765,
         on_download=None,
         on_downloads_complete=None,
@@ -214,7 +230,7 @@ class Chat:
         from services.ingest.service import Ingest
 
         db_path = self._chat_cfg.db_path
-        emb_path = db_path.parent / self._chat_cfg.embeddings_path
+        emb_path = self._resolve_embeddings_path(db_path)
 
         if self._llm_cfg is None:
             from core.llm.config import resolve_config
@@ -228,6 +244,8 @@ class Chat:
             embed_client=self._embed_client,
             embeddings_path=emb_path,
             downloads_dir=db_path.parent / "downloads",
+            download_workers=download_workers,
+            chunk_workers=chunk_workers,
         )
         result, new_index = ingest_svc.run(
             query,
@@ -253,6 +271,7 @@ class Chat:
         self,
         confirmed_docs: list,
         *,
+        chunk_workers: int = 4,
         dashboard_port: int = 8765,
         on_chunk=None,
         on_extract_start=None,
@@ -262,7 +281,7 @@ class Chat:
         from services.ingest.service import Ingest
 
         db_path = self._chat_cfg.db_path
-        emb_path = db_path.parent / self._chat_cfg.embeddings_path
+        emb_path = self._resolve_embeddings_path(db_path)
 
         if self._llm_cfg is None:
             from core.llm.config import resolve_config
@@ -275,6 +294,7 @@ class Chat:
             llm_cfg=self._llm_cfg,
             embed_client=self._embed_client,
             embeddings_path=emb_path,
+            chunk_workers=chunk_workers,
         )
         result, new_index = ingest_svc.ingest_local_files(
             confirmed_docs,

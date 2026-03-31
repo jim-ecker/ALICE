@@ -14,7 +14,7 @@ DEFAULT_BASE_URL_VLLM = "http://localhost:8000/v1"
 
 @dataclass
 class LLMConfig:
-    backend: str = "auto"   # "mlx" | "openai-compatible" | "auto"
+    backend: str = "auto"   # "mlx" | "vllm" | "openai-compatible" | "auto"
     model: str = ""
     base_url: str = ""
     api_key: str = "token"
@@ -74,7 +74,7 @@ def auto_detect() -> LLMConfig:
         return LLMConfig(backend="openai-compatible", base_url=DEFAULT_BASE_URL_OLLAMA)
 
     if _probe(DEFAULT_BASE_URL_VLLM + "/models"):
-        return LLMConfig(backend="openai-compatible", base_url=DEFAULT_BASE_URL_VLLM)
+        return LLMConfig(backend="vllm", base_url=DEFAULT_BASE_URL_VLLM)
 
     raise RuntimeError(
         "No LLM backend detected. Please do one of the following:\n"

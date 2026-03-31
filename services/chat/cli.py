@@ -10,18 +10,33 @@ from rich.table import Table
 chat_app = typer.Typer(help="ALICE chat service")
 
 
+def _resolve_chat_db_path(db_path: Path) -> Path:
+    """Resolve shorthand chat db paths into the service-local data directory.
+
+    Examples:
+    - `chat.db` stays `chat.db`
+    - `m2m` becomes `services/chat/data/m2m/m2m.db`
+    - `foo/bar` becomes `services/chat/data/foo/bar/bar.db`
+    """
+    if db_path.suffix == ".db":
+        return db_path
+    return Path("services/chat/data") / db_path / f"{db_path.name}.db"
+
+
 @chat_app.command()
 def serve(
     db_path: Path = typer.Option(Path("chat.db"), "--db-path", help="Path to the chat KuzuDB database"),
     host: str = typer.Option("127.0.0.1", help="Host to bind the server"),
     port: int = typer.Option(8766, help="Port to bind the server"),
     model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
-    backend: Optional[str] = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
+    backend: Optional[str] = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
     base_url: Optional[str] = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
     api_key: Optional[str] = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
 ) -> None:
     """Start the ALICE chat server."""
     from services.chat.server import start
+
+    db_path = _resolve_chat_db_path(db_path)
 
     start(
         db_path,
@@ -42,10 +57,12 @@ def ingest(
     offset: Optional[int] = typer.Option(None, help="Override the starting NTRS result index (auto-tracked if omitted)"),
     location: Optional[str] = typer.Option(None, help="NASA center name (e.g. 'langley')"),
     model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
-    backend: Optional[str] = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
+    backend: Optional[str] = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
     base_url: Optional[str] = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
     api_key: Optional[str] = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
-    workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    workers: int = typer.Option(10, help="Parallel ingest workers"),
+    llm_workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    chunk_workers: int = typer.Option(4, help="Parallel document chunking workers"),
     dashboard_port: int = typer.Option(8765, help="Port for the extraction progress dashboard"),
 ) -> None:
     """Download, chunk, extract triples, and embed documents into the chat knowledge graph."""
@@ -58,8 +75,9 @@ def ingest(
         cli_backend=backend,
         cli_base_url=base_url,
         cli_api_key=api_key,
-        cli_workers=workers,
+        cli_workers=llm_workers,
     )
+    db_path = _resolve_chat_db_path(db_path)
     chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
 
     typer.echo(f"Searching NTRS for '{query}'" + (f" at {location}" if location else "") + "...")
@@ -147,6 +165,8 @@ def ingest(
         center=location,
         max_docs=max_docs,
         offset=offset,
+        download_workers=workers,
+        chunk_workers=chunk_workers,
         dashboard_port=dashboard_port,
         on_download=on_download,
         on_downloads_complete=on_downloads_complete,
@@ -176,10 +196,12 @@ def ingest_folder(
     recursive: bool = typer.Option(False, "--recursive", "-r", help="Search for PDFs recursively"),
     no_verify: bool = typer.Option(False, "--no-verify", help="Skip interactive metadata verification"),
     model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
-    backend: Optional[str] = typer.Option(None, help="mlx | openai-compatible (overrides alice.toml)"),
+    backend: Optional[str] = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
     base_url: Optional[str] = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
     api_key: Optional[str] = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
-    workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    workers: int = typer.Option(10, help="Parallel ingest workers"),
+    llm_workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    chunk_workers: int = typer.Option(4, help="Parallel document chunking workers"),
     dashboard_port: int = typer.Option(8765, help="Port for the extraction progress dashboard"),
 ) -> None:
     """Ingest local PDF files from a folder into the chat knowledge graph.
@@ -226,17 +248,24 @@ def ingest_folder(
         cli_backend=backend,
         cli_base_url=base_url,
         cli_api_key=api_key,
-        cli_workers=workers,
+        cli_workers=llm_workers,
     )
 
     # Phase 1: extract metadata for all documents
     typer.echo("Extracting metadata...")
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def load_metadata(path: Path) -> tuple[Path, dict]:
+        if path.suffix.lower() in _EXCEL_EXTS:
+            return path, extract_excel_metadata(path)
+        return path, extract_pdf_metadata(path)
+
     all_meta = {}
-    for f in all_files:
-        if f.suffix.lower() in _EXCEL_EXTS:
-            all_meta[f] = extract_excel_metadata(f)
-        else:
-            all_meta[f] = extract_pdf_metadata(f)
+    with ThreadPoolExecutor(max_workers=min(max(1, workers), len(all_files))) as executor:
+        future_to_path = {executor.submit(load_metadata, path): path for path in all_files}
+        for future in as_completed(future_to_path):
+            path, meta = future.result()
+            all_meta[path] = meta
 
     # Phase 2: LLM inference for docs with missing title or authors (PDFs only)
     needs_inference = [f for f in all_files if f.suffix.lower() not in _EXCEL_EXTS and (not all_meta[f].get("title") or not all_meta[f].get("authors"))]
@@ -307,6 +336,7 @@ def ingest_folder(
             raise typer.Exit(0)
 
     # Phase 4: Chunk + extract + build index
+    db_path = _resolve_chat_db_path(db_path)
     chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
 
     chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
@@ -337,6 +367,7 @@ def ingest_folder(
 
     result = chat.ingest_local_files(
         confirmed_docs,
+        chunk_workers=chunk_workers,
         dashboard_port=dashboard_port,
         on_chunk=on_chunk,
         on_extract_start=on_extract_start,
@@ -441,6 +472,7 @@ def skip_unextracted(
     if not yes:
         typer.confirm("This will mark all unextracted chunks as skipped. Continue?", abort=True)
 
+    db_path = _resolve_chat_db_path(db_path)
     store = KuzuStore(db_path)
     count = store.skip_unextracted_chunks()
     typer.echo(f"Skipped {count} unextracted chunk(s).")

@@ -51,6 +51,7 @@ class Ingest:
         embed_client: EmbeddingsClient | None = None,
         embeddings_path: Path | None = None,
         downloads_dir: Path = Path("downloads"),
+        download_workers: int = 10,
         chunk_workers: int = 4,
     ) -> None:
         self._db_path = Path(db_path)
@@ -58,6 +59,7 @@ class Ingest:
         self._embed_client = embed_client
         self._embeddings_path = embeddings_path
         self._downloads_dir = Path(downloads_dir)
+        self._download_workers = download_workers
         self._chunk_workers = chunk_workers
 
     def download(
@@ -123,7 +125,7 @@ class Ingest:
 
             # Parallel download — only records not already in graph
             downloaded: list[tuple[Path, str, str]] = []
-            with ThreadPoolExecutor(max_workers=min(10, len(records_to_fetch))) as executor:
+            with ThreadPoolExecutor(max_workers=min(self._download_workers, len(records_to_fetch))) as executor:
                 futures = {executor.submit(download_pdf, record, self._downloads_dir): record for record in records_to_fetch}
                 for future in as_completed(futures):
                     record = futures[future]
@@ -163,15 +165,7 @@ class Ingest:
                     for future in as_completed(futures2):
                         try:
                             source, chunks, title, citation_url = future.result()
-                            store.write_document(source.id, source.source_url, source.doc_type, title)
-                            for chunk in chunks:
-                                store.write_chunk(
-                                    id=chunk.id,
-                                    document_id=chunk.provenance.document_id,
-                                    content=chunk.content,
-                                    section_heading=chunk.provenance.section_heading,
-                                    page_number=chunk.provenance.page_number,
-                                )
+                            store.write_document_with_chunks(source, title, chunks)
                             total_chunks += len(chunks)
                             doc_details.append((title, citation_url, len(chunks)))
                             if on_chunk:
@@ -330,15 +324,7 @@ class Ingest:
                     path, meta = futures[future]
                     try:
                         source, chunks, title, citation_url = future.result()
-                        store.write_document(source.id, source.source_url, source.doc_type, title)
-                        for chunk in chunks:
-                            store.write_chunk(
-                                id=chunk.id,
-                                document_id=chunk.provenance.document_id,
-                                content=chunk.content,
-                                section_heading=chunk.provenance.section_heading,
-                                page_number=chunk.provenance.page_number,
-                            )
+                        store.write_document_with_chunks(source, title, chunks)
                         total_chunks += len(chunks)
                         doc_details.append((title, citation_url, len(chunks)))
                         if on_chunk:

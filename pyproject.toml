@@ -30,7 +30,6 @@ alice  = "services.chat.cli:root_app"
 mlx = [
     "mlx-lm>=0.21.0",
 ]
-vllm = ["openai>=1.0.0"]
 
 [tool.uv]
 package = true

@@ -64,7 +64,7 @@ def load_chat_config(
         api_key=embed_raw.get("api_key", "token"),
         model=embed_raw.get("model", "nomic-embed-text"),
         batch_size=int(embed_raw.get("batch_size", 64)),
-        max_chars=int(embed_raw.get("max_chars", 20000)),
+        max_chars=int(embed_raw.get("max_chars", 2200)),
     )
 
     filter_top_k = score_raw.get("relevance_filter_top_k", None)

@@ -143,12 +143,25 @@ class KuzuStore(GraphStore):
         )
 
     def write_document(self, id: str, source_url: str | None, doc_type: str, title: str = "") -> None:
+        self._write_document(id, source_url, doc_type, title)
+
+    def _write_document(self, id: str, source_url: str | None, doc_type: str, title: str = "") -> None:
         self._conn.execute(
             "MERGE (d:Document {id: $id}) SET d.source_url = $source_url, d.doc_type = $doc_type, d.title = $title",
             parameters={"id": id, "source_url": source_url, "doc_type": doc_type, "title": title},
         )
 
     def write_chunk(
+        self,
+        id: str,
+        document_id: str,
+        content: str,
+        section_heading: str | None,
+        page_number: int | None,
+    ) -> None:
+        self._write_chunk(id, document_id, content, section_heading, page_number)
+
+    def _write_chunk(
         self,
         id: str,
         document_id: str,
@@ -179,6 +192,24 @@ class KuzuStore(GraphStore):
             """,
             parameters={"document_id": document_id, "chunk_id": id},
         )
+
+    def write_document_with_chunks(self, source, title: str, chunks: list) -> None:
+        """Persist one document and all of its chunks in a single transaction."""
+        self._conn.execute("BEGIN TRANSACTION")
+        try:
+            self._write_document(source.id, source.source_url, source.doc_type, title)
+            for chunk in chunks:
+                self._write_chunk(
+                    id=chunk.id,
+                    document_id=chunk.provenance.document_id,
+                    content=chunk.content,
+                    section_heading=chunk.provenance.section_heading,
+                    page_number=chunk.provenance.page_number,
+                )
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
 
     def read_chunks(self, unextracted_only: bool = False) -> list[ChunkRecord]:
         if unextracted_only:

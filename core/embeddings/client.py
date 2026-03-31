@@ -11,7 +11,7 @@ class EmbeddingsConfig:
     api_key: str = "token"
     model: str = "nomic-embed-text"
     batch_size: int = 64
-    max_chars: int = 20000
+    max_chars: int = 2200
 
 
 class EmbeddingsClient:

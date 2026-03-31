@@ -75,10 +75,14 @@ Then pull the model:
 ollama pull qwen2.5:14b
 ```
 
-### Linux (vLLM)
+### Linux (vLLM, including multi-GPU workstations)
+
+Keep the ALICE app environment separate from the vLLM serving environment:
 
 ```bash
-uv sync --extra vllm
+uv sync
+uv venv .venv-vllm --python 3.11 --seed
+UV_TORCH_BACKEND=cu128 uv pip install --python .venv-vllm/bin/python vllm
 cp alice.toml.example alice.toml
 ```
 
@@ -86,11 +90,19 @@ Edit `alice.toml`:
 
 ```toml
 [llm]
-backend = "openai-compatible"
+backend = "vllm"
 model = "your-model-id"
 base_url = "http://localhost:8000/v1"
 workers = 8
 ```
+
+Example launch on a 4-GPU workstation:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3 ./scripts/start-vllm.sh your-model-id
+```
+
+Tune `workers` in `alice.toml` independently from `--tensor-parallel-size`: `workers` controls how many ALICE extraction requests are in flight, while vLLM handles batching on the server side.
 
 ---
 
@@ -144,7 +156,7 @@ For building a separate knowledge graph (not used by the chat service):
 
 ```bash
 # Download and chunk papers
-ingest download "space robotics" --max-docs 20 --db-path alice.db
+ingest download "space robotics" --max-docs 20 --workers 16 --chunk-workers 8 --db-path alice.db
 
 # Extract triples with the LLM
 ingest extract --db-path alice.db
