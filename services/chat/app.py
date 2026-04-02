@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -112,6 +112,18 @@ class SwitchExpertRequest(BaseModel):
     slug: str
 
 
+# ── Identity ─────────────────────────────────────────────────────────────────
+
+def get_current_user(request: Request) -> str:
+    """Read user identity from the X-Remote-User header set by Apache/mod_auth_mellon.
+
+    Returns an empty string when running without a proxy (local dev), which maps
+    all requests to the anonymous owner namespace. Normalised to lowercase to
+    prevent duplicate history buckets if the IdP varies email case between sessions.
+    """
+    return request.headers.get("X-Remote-User", "").strip().lower()
+
+
 # ── App factory ──────────────────────────────────────────────────────────────
 
 def create_app(state, chat, cfg) -> FastAPI:
@@ -139,8 +151,8 @@ def create_app(state, chat, cfg) -> FastAPI:
         )
 
     @app.get("/api/conversations", response_model=ListConversationsResponse)
-    async def list_conversations():
-        convs = state.chat_store.list_conversations()
+    async def list_conversations(owner: str = Depends(get_current_user)):
+        convs = state.chat_store.list_conversations(owner=owner)
         return ListConversationsResponse(
             conversations=[
                 ConversationItem(id=c.id, title=c.title, created_at=c.created_at)
@@ -149,20 +161,20 @@ def create_app(state, chat, cfg) -> FastAPI:
         )
 
     @app.post("/api/conversations", response_model=ConversationResponse, status_code=201)
-    async def create_conversation(req: CreateConversationRequest):
-        conv = state.chat_store.create_conversation(req.title)
+    async def create_conversation(req: CreateConversationRequest, owner: str = Depends(get_current_user)):
+        conv = state.chat_store.create_conversation(req.title, owner=owner)
         return ConversationResponse(id=conv.id, title=conv.title, created_at=conv.created_at)
 
     @app.delete("/api/conversations/{conv_id}", status_code=204)
-    async def delete_conversation(conv_id: str):
-        conv = state.chat_store.get_conversation(conv_id)
+    async def delete_conversation(conv_id: str, owner: str = Depends(get_current_user)):
+        conv = state.chat_store.get_conversation(conv_id, owner=owner)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        state.chat_store.delete_conversation(conv_id)
+        state.chat_store.delete_conversation(conv_id, owner=owner)
 
     @app.get("/api/conversations/{conv_id}/messages", response_model=GetMessagesResponse)
-    async def get_messages(conv_id: str):
-        conv = state.chat_store.get_conversation(conv_id)
+    async def get_messages(conv_id: str, owner: str = Depends(get_current_user)):
+        conv = state.chat_store.get_conversation(conv_id, owner=owner)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
         messages = state.chat_store.get_messages(conv_id)
@@ -179,8 +191,8 @@ def create_app(state, chat, cfg) -> FastAPI:
         return GetMessagesResponse(messages=items)
 
     @app.post("/api/conversations/{conv_id}/messages", response_model=SendMessageResponse)
-    async def send_message(conv_id: str, req: SendMessageRequest):
-        conv = state.chat_store.get_conversation(conv_id)
+    async def send_message(conv_id: str, req: SendMessageRequest, owner: str = Depends(get_current_user)):
+        conv = state.chat_store.get_conversation(conv_id, owner=owner)
         if not conv:
             raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -284,7 +296,7 @@ def create_app(state, chat, cfg) -> FastAPI:
         ]
         new_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 20)
         new_title = new_title.strip().strip('"').strip("'")
-        state.chat_store.update_conversation_title(conv_id, new_title)
+        state.chat_store.update_conversation_title(conv_id, new_title, owner=owner)
 
         return SendMessageResponse(
             message_id=asst_msg.id,

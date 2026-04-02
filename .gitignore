@@ -46,3 +46,6 @@ ingest-folder/
 
 # Local machine config (copy alice.toml.example → alice.toml and edit)
 alice.toml
+
+# Deploy
+deploy/

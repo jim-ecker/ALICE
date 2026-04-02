@@ -49,6 +49,7 @@ class ConversationRecord:
     id: str
     title: str
     created_at: str
+    owner: str = ""
 
 
 @dataclass
@@ -78,51 +79,59 @@ class ChatStore:
             self._conn.execute("ALTER TABLE Message ADD citations_json STRING DEFAULT ''")
         except Exception:
             pass
+        try:
+            self._conn.execute("ALTER TABLE Conversation ADD owner STRING DEFAULT ''")
+        except Exception:
+            pass
 
-    def create_conversation(self, title: str) -> ConversationRecord:
+    def create_conversation(self, title: str, owner: str = "") -> ConversationRecord:
         conv_id = _new_id()
         created_at = _now()
         self._conn.execute(
-            "CREATE (:Conversation {id: $id, title: $title, created_at: $created_at})",
-            parameters={"id": conv_id, "title": title, "created_at": created_at},
+            "CREATE (:Conversation {id: $id, title: $title, created_at: $created_at, owner: $owner})",
+            parameters={"id": conv_id, "title": title, "created_at": created_at, "owner": owner},
         )
-        return ConversationRecord(id=conv_id, title=title, created_at=created_at)
+        return ConversationRecord(id=conv_id, title=title, created_at=created_at, owner=owner)
 
-    def list_conversations(self) -> list[ConversationRecord]:
+    def list_conversations(self, owner: str = "") -> list[ConversationRecord]:
         result = self._conn.execute(
-            "MATCH (c:Conversation) RETURN c.id, c.title, c.created_at ORDER BY c.created_at DESC"
+            "MATCH (c:Conversation) WHERE c.owner = $owner "
+            "RETURN c.id, c.title, c.created_at ORDER BY c.created_at DESC",
+            parameters={"owner": owner},
         )
         convs = []
         while result.has_next():
             row = result.get_next()
-            convs.append(ConversationRecord(id=row[0], title=row[1], created_at=row[2]))
+            convs.append(ConversationRecord(id=row[0], title=row[1], created_at=row[2], owner=owner))
         return convs
 
-    def get_conversation(self, id: str) -> ConversationRecord | None:
+    def get_conversation(self, id: str, owner: str = "") -> ConversationRecord | None:
         result = self._conn.execute(
-            "MATCH (c:Conversation {id: $id}) RETURN c.id, c.title, c.created_at",
-            parameters={"id": id},
+            "MATCH (c:Conversation {id: $id}) WHERE c.owner = $owner "
+            "RETURN c.id, c.title, c.created_at",
+            parameters={"id": id, "owner": owner},
         )
         if result.has_next():
             row = result.get_next()
-            return ConversationRecord(id=row[0], title=row[1], created_at=row[2])
+            return ConversationRecord(id=row[0], title=row[1], created_at=row[2], owner=owner)
         return None
 
-    def update_conversation_title(self, id: str, title: str) -> None:
+    def update_conversation_title(self, id: str, title: str, owner: str = "") -> None:
         self._conn.execute(
-            "MATCH (c:Conversation {id: $id}) SET c.title = $title",
-            parameters={"id": id, "title": title},
+            "MATCH (c:Conversation {id: $id}) WHERE c.owner = $owner SET c.title = $title",
+            parameters={"id": id, "owner": owner, "title": title},
         )
 
-    def delete_conversation(self, id: str) -> None:
+    def delete_conversation(self, id: str, owner: str = "") -> None:
         # Delete messages first
         self._conn.execute(
-            "MATCH (c:Conversation {id: $id})-[:HAS_MESSAGE]->(m:Message) DETACH DELETE m",
-            parameters={"id": id},
+            "MATCH (c:Conversation {id: $id})-[:HAS_MESSAGE]->(m:Message) "
+            "WHERE c.owner = $owner DETACH DELETE m",
+            parameters={"id": id, "owner": owner},
         )
         self._conn.execute(
-            "MATCH (c:Conversation {id: $id}) DETACH DELETE c",
-            parameters={"id": id},
+            "MATCH (c:Conversation {id: $id}) WHERE c.owner = $owner DETACH DELETE c",
+            parameters={"id": id, "owner": owner},
         )
 
     def add_message(

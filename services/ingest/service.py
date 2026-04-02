@@ -1,12 +1,84 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import multiprocessing
+import os
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.embeddings.client import EmbeddingsClient
 from core.embeddings.index import EmbeddingIndex
 from core.llm.config import LLMConfig
+
+
+def _get_visible_gpu_ids() -> list[int]:
+    """Parse CUDA_VISIBLE_DEVICES into a list of physical GPU IDs.
+
+    Returns an empty list when the variable is unset or CUDA is unavailable.
+    """
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if not raw or raw in ("NoDeviceFiles", "-1"):
+        return []
+    try:
+        return [int(x.strip()) for x in raw.split(",") if x.strip().lstrip("-").isdigit()]
+    except ValueError:
+        return []
+
+
+def _get_usable_gpu_ids(min_free_gb: float = 3.0) -> list[int]:
+    """Return physical GPU IDs from CUDA_VISIBLE_DEVICES that have >= min_free_gb free.
+
+    Uses nvidia-smi so no CUDA context is created in the main process.
+    Falls back to all visible IDs if nvidia-smi is unavailable.
+    """
+    import subprocess
+
+    gpu_ids = _get_visible_gpu_ids()
+    if not gpu_ids:
+        return []
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode != 0:
+            return gpu_ids
+        free_mib: dict[int, int] = {}
+        for line in result.stdout.strip().splitlines():
+            idx_str, free_str = line.split(",")
+            free_mib[int(idx_str.strip())] = int(free_str.strip())
+        min_mib = int(min_free_gb * 1024)
+        usable = [gid for gid in gpu_ids if free_mib.get(gid, 0) >= min_mib]
+        if not usable:
+            print(
+                f"[ingest] Warning: no GPU among {gpu_ids} has >= {min_free_gb} GiB free "
+                f"(free MiB per GPU: {free_mib}). Falling back to all visible GPUs."
+            )
+            return gpu_ids
+        skipped = [gid for gid in gpu_ids if gid not in usable]
+        if skipped:
+            print(f"[ingest] Skipping GPU(s) {skipped}: insufficient free memory for docling (< {min_free_gb} GiB).")
+        return usable
+    except FileNotFoundError:
+        return gpu_ids  # nvidia-smi not available
+    except Exception:
+        return gpu_ids
+
+
+# Per-process GPU ID set by the worker initializer.
+_worker_gpu_id: int | None = None
+
+
+def _init_chunk_worker(gpu_queue: multiprocessing.Queue) -> None:
+    """Claim a GPU ID from the queue and bind this process to it via CUDA_VISIBLE_DEVICES."""
+    global _worker_gpu_id
+    try:
+        _worker_gpu_id = gpu_queue.get_nowait()
+    except Exception:
+        _worker_gpu_id = None
+    if _worker_gpu_id is not None:
+        # Remap "CUDA device 0" inside this process to the assigned physical GPU.
+        os.environ["CUDA_VISIBLE_DEVICES"] = str(_worker_gpu_id)
 
 
 def _chunk_document(args: tuple) -> tuple:
@@ -26,6 +98,29 @@ def _chunk_document(args: tuple) -> tuple:
     if delete_after:
         path.unlink(missing_ok=True)
     return source, chunks, title, citation_url
+
+
+def _make_chunk_executor(num_workers: int) -> tuple[ProcessPoolExecutor, multiprocessing.Queue]:
+    """Build a ProcessPoolExecutor whose workers are each pinned to a distinct GPU.
+
+    Uses 'spawn' to give every worker a clean CUDA context.  GPU IDs are drawn
+    from CUDA_VISIBLE_DEVICES; if none are available workers run on CPU/default.
+    Returns (executor, gpu_queue) — caller must enter/exit the executor as a
+    context manager.
+    """
+    ctx = multiprocessing.get_context("spawn")
+    gpu_ids = _get_usable_gpu_ids()
+    gpu_queue: multiprocessing.Queue = ctx.Queue()
+    for i in range(num_workers):
+        if gpu_ids:
+            gpu_queue.put(gpu_ids[i % len(gpu_ids)])
+    executor = ProcessPoolExecutor(
+        max_workers=num_workers,
+        mp_context=ctx,
+        initializer=_init_chunk_worker,
+        initargs=(gpu_queue,),
+    )
+    return executor, gpu_queue
 
 
 @dataclass
@@ -143,8 +238,6 @@ class Ingest:
             if on_downloads_complete:
                 on_downloads_complete([(title, url) for _, title, url in downloaded])
 
-            # Parallel chunking — ThreadPoolExecutor: threads share one copy of the Docling
-            # model weights in the main process (no per-worker reload, no shutdown hang).
             # Belt-and-suspenders: also check by SHA256 hash in case the URL changed.
             to_chunk: list[tuple[Path, str, str]] = []
             for path, title, url in downloaded:
@@ -157,7 +250,9 @@ class Ingest:
                     to_chunk.append((path, title, url))
 
             if to_chunk:
-                with ThreadPoolExecutor(max_workers=min(self._chunk_workers, len(to_chunk))) as executor:
+                num_workers = min(self._chunk_workers, len(to_chunk))
+                executor, _ = _make_chunk_executor(num_workers)
+                with executor:
                     futures2 = {
                         executor.submit(_chunk_document, (path, title, url, True)): (path, title, url)
                         for path, title, url in to_chunk
@@ -312,7 +407,9 @@ class Ingest:
         doc_details = []
 
         with KuzuStore(self._db_path) as store:
-            with ThreadPoolExecutor(max_workers=min(self._chunk_workers, max(1, len(confirmed_docs)))) as executor:
+            num_workers = min(self._chunk_workers, max(1, len(confirmed_docs)))
+            executor, _ = _make_chunk_executor(num_workers)
+            with executor:
                 futures = {
                     executor.submit(
                         _chunk_document,
