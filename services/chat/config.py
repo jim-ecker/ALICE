@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from core.embeddings.client import EmbeddingsConfig
 from core.scoring.composite import ScoringConfig
+from services.chat.paths import default_chat_data_dir, default_chat_db_path
+from services.experts.paths import default_experts_dir
 
 
 @dataclass
 class ChatConfig:
-    db_path: Path = Path("data/chat/chat.db")
-    embeddings_path: Path = Path("chat.embeddings.npz")
-    experts_dir: Path = Path("data/experts")
+    db_path: Path = field(default_factory=default_chat_db_path)
+    embeddings_path: Path = field(default_factory=lambda: default_chat_data_dir() / "chat.embeddings.npz")
+    experts_dir: Path = field(default_factory=default_experts_dir)
     host: str = "127.0.0.1"
     port: int = 8766
     history_turns: int = 10
@@ -45,9 +47,9 @@ def load_chat_config(
     chat_llm_raw = data.get("chat_llm", None)
 
     chat_cfg = ChatConfig(
-        db_path=Path(chat_raw.get("db_path", "data/chat/chat.db")),
-        embeddings_path=Path(chat_raw.get("embeddings_path", "chat.embeddings.npz")),
-        experts_dir=Path(chat_raw.get("experts_dir", "data/experts")),
+        db_path=Path(chat_raw.get("db_path", default_chat_db_path())),
+        embeddings_path=Path(chat_raw.get("embeddings_path", default_chat_data_dir() / "chat.embeddings.npz")),
+        experts_dir=Path(chat_raw.get("experts_dir", default_experts_dir())),
         host=chat_raw.get("host", "127.0.0.1"),
         port=int(chat_raw.get("port", 8766)),
         history_turns=int(chat_raw.get("history_turns", 10)),

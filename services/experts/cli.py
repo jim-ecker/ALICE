@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -9,6 +10,20 @@ from rich.panel import Panel
 from rich.table import Table
 
 app = typer.Typer(help="Manage ALICE virtual experts", invoke_without_command=True)
+LOGGER = logging.getLogger(__name__)
+
+
+def _resolve_llm_cfg(start_dir: Path):
+    from core.llm.config import resolve_config
+
+    return resolve_config(
+        cli_model=None,
+        cli_backend=None,
+        cli_base_url=None,
+        cli_api_key=None,
+        cli_workers=None,
+        start_dir=start_dir,
+    )
 
 
 @app.callback(invoke_without_command=True)
@@ -95,11 +110,11 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
     from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
     from core.embeddings.client import EmbeddingsClient
-    from core.llm.config import resolve_config
     from services.experts.ingest import ingest_for_expert
+    from services.experts.paths import build_expert_paths
 
     if llm_cfg is None:
-        llm_cfg = resolve_config()
+        llm_cfg = _resolve_llm_cfg(Path(experts_dir))
     embed_client = EmbeddingsClient(embed_cfg)
 
     rprint(f"[dim]Searching NTRS for author: {query_name!r}[/dim]")
@@ -108,7 +123,7 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn()
     )
     dl_progress.start()
-    dl_task = dl_progress.add_task("Downloading PDFs...", total=meta.max_docs)
+    dl_task = dl_progress.add_task("Searching NTRS...", total=max(1, meta.max_docs))
 
     extract_progress = Progress(
         SpinnerColumn(),
@@ -121,10 +136,25 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         "extract_task": None,
         "extract_started": False,
         "dl_stopped": False,
+        "records_found": None,
+        "download_failures": [],
     }
 
+    def on_search_complete(total):
+        state["records_found"] = total
+        dl_progress.update(
+            dl_task,
+            description="Downloading PDFs..." if total else "No downloadable PDFs found",
+            total=max(1, total),
+        )
+
     def on_download(title):
+        dl_progress.update(dl_task, description=f"Downloading PDFs... {title[:48]}")
         dl_progress.advance(dl_task)
+
+    def on_download_failed(title, error):
+        state["download_failures"].append((title, error))
+        LOGGER.warning("Expert download failed for %s: %s", title, error)
 
     def on_downloads_complete(records):
         dl_progress.stop()
@@ -158,7 +188,9 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         experts_dir,
         llm_cfg,
         embed_client,
+        on_search_complete=on_search_complete,
         on_download=on_download,
+        on_download_failed=on_download_failed,
         on_downloads_complete=on_downloads_complete,
         on_extract_start=on_extract_start,
         on_chunk_extracted=on_chunk_extracted,
@@ -172,12 +204,23 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
     if result.docs_added > 0:
         rprint(f"[green]Ingested:[/green] {result.docs_added} docs, {result.chunks_added} chunks")
         updated_queries = list(meta.queries_ingested) + [query_name]
-        db_path = Path(experts_dir) / f"{meta.slug}.db"
+        db_path = build_expert_paths(experts_dir, meta.slug).db_path
         from services.experts.expertise import compute_expertise_areas
         areas = compute_expertise_areas(db_path)
         registry.update(meta.slug, queries_ingested=updated_queries, expertise_areas=areas)
         if areas:
             rprint(f"[dim]Expertise areas:[/dim] {', '.join(areas)}")
+    elif state["download_failures"]:
+        rprint(
+            f"[red]Found {state['records_found'] or len(state['download_failures'])} candidate documents, "
+            f"but {len(state['download_failures'])} download(s) failed.[/red]"
+        )
+        tbl = Table(title="Download Failures")
+        tbl.add_column("Title", ratio=1)
+        tbl.add_column("Error")
+        for title, error in state["download_failures"]:
+            tbl.add_row(title, error)
+        rprint(tbl)
     else:
         rprint(f"[red]No documents found for '{query_name}'.[/red]")
 
@@ -224,7 +267,9 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
             meta = registry.get(meta.slug) or meta
         elif action == "Refresh expertise areas":
             from services.experts.expertise import compute_expertise_areas
-            db_path = Path(experts_dir) / f"{meta.slug}.db"
+            from services.experts.paths import build_expert_paths
+
+            db_path = build_expert_paths(experts_dir, meta.slug).db_path
             rprint("[dim]Fetching subject categories from NTRS...[/dim]")
             areas = compute_expertise_areas(db_path)
             if areas:
@@ -251,13 +296,14 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
                 f"Delete DB and embeddings for '{meta.name}'?"
             ).ask()
             if confirmed:
-                for suffix in (".db", ".embeddings.npz"):
-                    p = Path(experts_dir) / f"{meta.slug}{suffix}"
+                from services.experts.paths import build_expert_paths
+
+                paths = build_expert_paths(experts_dir, meta.slug)
+                for p in (paths.db_path, paths.embeddings_path):
                     if p.exists():
-                        if p.is_dir():
-                            shutil.rmtree(p)
-                        else:
-                            p.unlink()
+                        p.unlink()
+                if paths.downloads_dir.exists():
+                    shutil.rmtree(paths.downloads_dir)
                 rprint("[green]Database and embeddings deleted.[/green]")
         elif action == "Delete expert":
             confirmed = questionary.confirm(
@@ -270,9 +316,11 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
 
 
 def _view_expert(meta, experts_dir) -> None:
-    experts_dir = Path(experts_dir)
-    db_exists = (experts_dir / f"{meta.slug}.db").exists()
-    emb_exists = (experts_dir / f"{meta.slug}.embeddings.npz").exists()
+    from services.experts.paths import build_expert_paths
+
+    paths = build_expert_paths(experts_dir, meta.slug)
+    db_exists = paths.db_path.exists()
+    emb_exists = paths.embeddings_path.exists()
     tbl = Table(title=f"Expert: {meta.name}")
     tbl.add_column("Field", style="bold")
     tbl.add_column("Value")

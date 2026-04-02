@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+import logging
 from pathlib import Path
 
 from core.embeddings.client import EmbeddingsClient
 from core.embeddings.index import EmbeddingIndex
 from core.llm.config import LLMConfig
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _chunk_document(args: tuple) -> tuple:
@@ -69,7 +72,9 @@ class Ingest:
         max_docs: int = 20,
         author: str | None = None,
         offset: int | None = None,
+        on_search_complete: "callable[[int], None] | None" = None,
         on_download: "callable[[str], None] | None" = None,
+        on_download_failed: "callable[[str, str], None] | None" = None,
         on_downloads_complete: "callable[[list[tuple[str, str]]], None] | None" = None,
         on_chunk: "callable[[str, int], None] | None" = None,
     ) -> DownloadResult:
@@ -101,24 +106,41 @@ class Ingest:
             if offset is None:
                 offset = store.get_ingest_offset(query_key)
 
-            records = search(query, center=center_code, max_docs=max_docs, author=author, offset=offset)
-            if not records:
-                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+            # Fetch records from NTRS, skipping any already in the graph, and
+            # keep fetching additional pages until we have max_docs new records
+            # or NTRS is exhausted.
+            records_to_fetch: list = []
+            current_offset = offset
+            while len(records_to_fetch) < max_docs:
+                batch, next_offset = search(
+                    query, center=center_code,
+                    max_docs=max_docs - len(records_to_fetch),
+                    author=author,
+                    offset=current_offset,
+                )
+                if not batch:
+                    break
+                for record in batch:
+                    if store.document_exists_by_url(record.citation_url):
+                        print(f"Skipping '{record.title[:60]}' (already in graph)")
+                    else:
+                        records_to_fetch.append(record)
+                        if len(records_to_fetch) >= max_docs:
+                            break
+                if next_offset <= current_offset:
+                    break  # NTRS exhausted, no forward progress
+                current_offset = next_offset
 
-            # Pre-filter: skip records whose citation_url is already in the graph,
-            # avoiding unnecessary network downloads entirely.
-            records_to_fetch = []
-            for record in records:
-                if store.document_exists_by_url(record.citation_url):
-                    print(f"Skipping '{record.title[:60]}' (already in graph)")
-                    if on_chunk:
-                        on_chunk(record.title, 0)
-                else:
-                    records_to_fetch.append(record)
-
-            # Advance stored offset by max_docs regardless of how many were new,
-            # so the next run fetches the next page of NTRS results.
-            store.set_ingest_offset(query_key, offset + max_docs)
+            if on_search_complete:
+                on_search_complete(len(records_to_fetch))
+            LOGGER.info(
+                "Prepared %d NTRS records for download for query=%r author=%r center=%r",
+                len(records_to_fetch),
+                query,
+                author,
+                center,
+            )
+            store.set_ingest_offset(query_key, current_offset)
 
             if not records_to_fetch:
                 return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
@@ -135,6 +157,9 @@ class Ingest:
                         if on_download:
                             on_download(record.title)
                     except Exception as e:
+                        LOGGER.warning("Failed to download %r from %s: %s", record.title, record.citation_url, e)
+                        if on_download_failed:
+                            on_download_failed(record.title, str(e))
                         print(f"Failed to download '{record.title[:60]}...': {e}")
 
             if not downloaded:
@@ -179,7 +204,8 @@ class Ingest:
     def extract(
         self,
         dashboard_port: int = 8765,
-        min_certainty: float = 0.5,
+        min_ingest_confidence: float = 0.6,
+        min_certainty: float | None = None,
         on_extract_start: "callable[[int], None] | None" = None,
         on_chunk_extracted: "callable[[int, int, int], None] | None" = None,
     ) -> int:
@@ -194,6 +220,8 @@ class Ingest:
 
         if self._llm_cfg is None:
             raise ValueError("llm_cfg is required for extraction")
+        if min_certainty is not None:
+            min_ingest_confidence = min_certainty
 
         with KuzuStore(self._db_path) as store:
             chunks = store.read_chunks(unextracted_only=True)
@@ -229,7 +257,7 @@ class Ingest:
                     try:
                         _doc_id, triples = future.result()
                         for triple in triples:
-                            if triple.certainty_score < min_certainty:
+                            if triple.certainty_score < min_ingest_confidence:
                                 continue
                             store.write_triple(
                                 subject=triple.subject.name,
@@ -239,6 +267,14 @@ class Ingest:
                                 object_type=triple.object_.type,
                                 certainty_score=triple.certainty_score,
                                 chunk_id=triple.chunk_id,
+                                raw_certainty_score=triple.raw_certainty_score,
+                                evidence_text=triple.evidence_text,
+                                evidence_char_start=triple.evidence_char_start,
+                                evidence_char_end=triple.evidence_char_end,
+                                evidence_alignment_score=triple.evidence_alignment_score,
+                                entity_anchor_score=triple.entity_anchor_score,
+                                evidence_scope_score=triple.evidence_scope_score,
+                                confidence_version=triple.confidence_version,
                             )
                             push_triple(
                                 subject=triple.subject.name,
@@ -246,7 +282,9 @@ class Ingest:
                                 relation=triple.relation,
                                 object_=triple.object_.name,
                                 object_type=triple.object_.type,
-                                certainty=triple.certainty_score,
+                                ingest_confidence=triple.certainty_score,
+                                extractor_certainty=triple.raw_certainty_score,
+                                evidence_text=triple.evidence_text,
                             )
                             total_triples += 1
                             triples_this_chunk += 1
@@ -355,7 +393,9 @@ class Ingest:
         author: str | None = None,
         offset: int | None = None,
         dashboard_port: int = 8765,
+        on_search_complete=None,
         on_download=None,
+        on_download_failed=None,
         on_downloads_complete=None,
         on_chunk=None,
         on_extract_start=None,
@@ -364,7 +404,9 @@ class Ingest:
         """End-to-end pipeline: download -> extract -> build index."""
         dl = self.download(
             query, center=center, max_docs=max_docs, author=author, offset=offset,
+            on_search_complete=on_search_complete,
             on_download=on_download,
+            on_download_failed=on_download_failed,
             on_downloads_complete=on_downloads_complete,
             on_chunk=on_chunk,
         )

@@ -48,7 +48,15 @@ _SCHEMA = [
         FROM Entity TO Entity,
         relation STRING,
         certainty_score DOUBLE,
-        chunk_id STRING
+        chunk_id STRING,
+        raw_certainty_score DOUBLE,
+        evidence_text STRING,
+        evidence_char_start INT64,
+        evidence_char_end INT64,
+        evidence_alignment_score DOUBLE,
+        entity_anchor_score DOUBLE,
+        evidence_scope_score DOUBLE,
+        confidence_version STRING
     )
     """,
 ]
@@ -100,6 +108,21 @@ class KuzuStore(GraphStore):
             self._conn.execute("ALTER TABLE Chunk ADD extracted_at STRING")
         except Exception:
             pass
+        rel_migrations = [
+            "ALTER TABLE RELATES_TO ADD raw_certainty_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD evidence_text STRING",
+            "ALTER TABLE RELATES_TO ADD evidence_char_start INT64",
+            "ALTER TABLE RELATES_TO ADD evidence_char_end INT64",
+            "ALTER TABLE RELATES_TO ADD evidence_alignment_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD entity_anchor_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD evidence_scope_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD confidence_version STRING",
+        ]
+        for statement in rel_migrations:
+            try:
+                self._conn.execute(statement)
+            except Exception:
+                pass
         # Backfill extracted_at for chunks that already have triples so they aren't re-processed
         self._conn.execute(
             """
@@ -302,6 +325,14 @@ class KuzuStore(GraphStore):
         object_type: str,
         certainty_score: float,
         chunk_id: str,
+        raw_certainty_score: float | None = None,
+        evidence_text: str | None = None,
+        evidence_char_start: int | None = None,
+        evidence_char_end: int | None = None,
+        evidence_alignment_score: float | None = None,
+        entity_anchor_score: float | None = None,
+        evidence_scope_score: float | None = None,
+        confidence_version: str | None = None,
     ) -> None:
         self._conn.execute(
             "MERGE (e:Entity {name: $name}) SET e.type = $type",
@@ -314,7 +345,19 @@ class KuzuStore(GraphStore):
         self._conn.execute(
             """
             MATCH (s:Entity {name: $subject}), (o:Entity {name: $object_})
-            CREATE (s)-[:RELATES_TO {relation: $relation, certainty_score: $certainty_score, chunk_id: $chunk_id}]->(o)
+            CREATE (s)-[:RELATES_TO {
+                relation: $relation,
+                certainty_score: $certainty_score,
+                chunk_id: $chunk_id,
+                raw_certainty_score: $raw_certainty_score,
+                evidence_text: $evidence_text,
+                evidence_char_start: $evidence_char_start,
+                evidence_char_end: $evidence_char_end,
+                evidence_alignment_score: $evidence_alignment_score,
+                entity_anchor_score: $entity_anchor_score,
+                evidence_scope_score: $evidence_scope_score,
+                confidence_version: $confidence_version
+            }]->(o)
             """,
             parameters={
                 "subject": subject,
@@ -322,5 +365,13 @@ class KuzuStore(GraphStore):
                 "relation": relation,
                 "certainty_score": certainty_score,
                 "chunk_id": chunk_id,
+                "raw_certainty_score": raw_certainty_score,
+                "evidence_text": evidence_text,
+                "evidence_char_start": evidence_char_start,
+                "evidence_char_end": evidence_char_end,
+                "evidence_alignment_score": evidence_alignment_score,
+                "entity_anchor_score": entity_anchor_score,
+                "evidence_scope_score": evidence_scope_score,
+                "confidence_version": confidence_version,
             },
         )

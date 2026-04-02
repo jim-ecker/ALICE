@@ -26,6 +26,14 @@ class RetrievedTriple:
     object_type: str
     certainty_score: float
     chunk_id: str
+    raw_certainty_score: float | None = None
+    evidence_text: str | None = None
+    evidence_char_start: int | None = None
+    evidence_char_end: int | None = None
+    evidence_alignment_score: float | None = None
+    entity_anchor_score: float | None = None
+    evidence_scope_score: float | None = None
+    confidence_version: str | None = None
 
 
 @dataclass
@@ -184,7 +192,9 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
         """
         MATCH (e1:Entity)-[r:RELATES_TO]->(e2:Entity)
         WHERE r.chunk_id IN $ids
-        RETURN e1.name, e1.type, r.relation, e2.name, e2.type, r.certainty_score, r.chunk_id
+        RETURN e1.name, e1.type, r.relation, e2.name, e2.type, r.certainty_score, r.chunk_id,
+               r.raw_certainty_score, r.evidence_text, r.evidence_char_start, r.evidence_char_end,
+               r.evidence_alignment_score, r.entity_anchor_score, r.evidence_scope_score, r.confidence_version
         """,
         parameters={"ids": chunk_ids},
     )
@@ -200,6 +210,14 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
                 object_type=row[4],
                 certainty_score=float(row[5]),
                 chunk_id=row[6],
+                raw_certainty_score=float(row[7]) if row[7] is not None else None,
+                evidence_text=row[8] or None,
+                evidence_char_start=int(row[9]) if row[9] is not None else None,
+                evidence_char_end=int(row[10]) if row[10] is not None else None,
+                evidence_alignment_score=float(row[11]) if row[11] is not None else None,
+                entity_anchor_score=float(row[12]) if row[12] is not None else None,
+                evidence_scope_score=float(row[13]) if row[13] is not None else None,
+                confidence_version=row[14] or None,
             )
         )
 

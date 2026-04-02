@@ -41,6 +41,14 @@ class GraphStore(ABC):
         object_type: str,
         certainty_score: float,
         chunk_id: str,
+        raw_certainty_score: float | None = None,
+        evidence_text: str | None = None,
+        evidence_char_start: int | None = None,
+        evidence_char_end: int | None = None,
+        evidence_alignment_score: float | None = None,
+        entity_anchor_score: float | None = None,
+        evidence_scope_score: float | None = None,
+        confidence_version: str | None = None,
     ) -> None: ...
 
     @abstractmethod

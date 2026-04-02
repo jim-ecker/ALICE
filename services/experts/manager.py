@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from services.experts.paths import build_expert_paths
+
 
 @dataclass
 class ExpertMeta:
@@ -65,7 +67,7 @@ class ExpertRegistry:
         return metas
 
     def get(self, slug: str) -> ExpertMeta | None:
-        meta_file = self.experts_dir / slug / f"{slug}.meta.json"
+        meta_file = build_expert_paths(self.experts_dir, slug).meta_path
         if not meta_file.exists():
             return None
         with open(meta_file) as f:
@@ -96,13 +98,14 @@ class ExpertRegistry:
         return meta
 
     def delete(self, slug: str) -> None:
-        expert_dir = self.experts_dir / slug
+        expert_dir = build_expert_paths(self.experts_dir, slug).expert_dir
         if expert_dir.exists():
             shutil.rmtree(expert_dir)
 
     def _write(self, meta: ExpertMeta) -> None:
-        (self.experts_dir / meta.slug).mkdir(parents=True, exist_ok=True)
-        meta_file = self.experts_dir / meta.slug / f"{meta.slug}.meta.json"
+        paths = build_expert_paths(self.experts_dir, meta.slug)
+        paths.expert_dir.mkdir(parents=True, exist_ok=True)
+        meta_file = paths.meta_path
         with open(meta_file, "w") as f:
             json.dump(meta.to_dict(), f, indent=2)
 

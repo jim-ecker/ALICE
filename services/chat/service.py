@@ -7,6 +7,7 @@ from typing import Any
 import uvicorn
 
 from services.chat.config import load_chat_config
+from services.chat.paths import default_chat_db_path
 from core.llm.config import LLMConfig
 from core.embeddings.client import EmbeddingsClient
 
@@ -34,7 +35,7 @@ class ServiceState:
 class Chat:
     def __init__(
         self,
-        db_path: Path = Path("chat.db"),
+        db_path: Path = default_chat_db_path(),
         *,
         llm_cfg: LLMConfig | None = None,
         embed_client: EmbeddingsClient | None = None,
@@ -192,16 +193,18 @@ class Chat:
         Raises FileNotFoundError if the expert metadata or database is missing.
         """
         from services.experts.manager import ExpertRegistry
+        from services.experts.paths import build_expert_paths
 
         experts_dir = self._chat_cfg.experts_dir
         registry = ExpertRegistry(experts_dir)
         meta = registry.get(slug)
         if meta is None:
             raise FileNotFoundError(f"Expert not found: {slug}")
-        db_path = Path(experts_dir) / slug / f"{slug}.db"
+        paths = build_expert_paths(experts_dir, slug)
+        db_path = paths.db_path
         if not db_path.exists():
             raise FileNotFoundError(f"Expert database not found: {db_path}")
-        emb_path = Path(experts_dir) / slug / f"{slug}.embeddings.npz"
+        emb_path = paths.embeddings_path
 
         self.close()
         new_state = self._build_state(db_path, emb_path)
@@ -220,7 +223,9 @@ class Chat:
         download_workers: int = 10,
         chunk_workers: int = 4,
         dashboard_port: int = 8765,
+        on_search_complete=None,
         on_download=None,
+        on_download_failed=None,
         on_downloads_complete=None,
         on_chunk=None,
         on_extract_start=None,
@@ -234,7 +239,14 @@ class Chat:
 
         if self._llm_cfg is None:
             from core.llm.config import resolve_config
-            self._llm_cfg = resolve_config(start_dir=db_path.parent)
+            self._llm_cfg = resolve_config(
+                cli_model=None,
+                cli_backend=None,
+                cli_base_url=None,
+                cli_api_key=None,
+                cli_workers=None,
+                start_dir=db_path.parent,
+            )
         if self._embed_client is None:
             self._embed_client = EmbeddingsClient(self._embed_cfg)
 
@@ -253,7 +265,9 @@ class Chat:
             max_docs=max_docs,
             offset=offset,
             dashboard_port=dashboard_port,
+            on_search_complete=on_search_complete,
             on_download=on_download,
+            on_download_failed=on_download_failed,
             on_downloads_complete=on_downloads_complete,
             on_chunk=on_chunk,
             on_extract_start=on_extract_start,
@@ -285,7 +299,14 @@ class Chat:
 
         if self._llm_cfg is None:
             from core.llm.config import resolve_config
-            self._llm_cfg = resolve_config(start_dir=db_path.parent)
+            self._llm_cfg = resolve_config(
+                cli_model=None,
+                cli_backend=None,
+                cli_base_url=None,
+                cli_api_key=None,
+                cli_workers=None,
+                start_dir=db_path.parent,
+            )
         if self._embed_client is None:
             self._embed_client = EmbeddingsClient(self._embed_cfg)
 
