@@ -15,13 +15,27 @@ def download_and_display(ingest, query: str, *, location: str | None, max_docs: 
 
     dl_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
     dl_progress.start()
-    dl_task = dl_progress.add_task("Downloading PDFs...", total=max_docs)
+    dl_task = dl_progress.add_task("Searching NTRS...", total=max(1, max_docs))
 
     chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
     chunk_task_holder: list = []
+    failures: list[tuple[str, str]] = []
+    records_found: list[int | None] = [None]
+
+    def on_search_complete(total: int) -> None:
+        records_found[0] = total
+        dl_progress.update(
+            dl_task,
+            description="Downloading PDFs..." if total else "No downloadable PDFs found",
+            total=max(1, total),
+        )
 
     def on_download(title: str) -> None:
+        dl_progress.update(dl_task, description=f"Downloading PDFs... {title[:48]}")
         dl_progress.advance(dl_task)
+
+    def on_download_failed(title: str, error: str) -> None:
+        failures.append((title, error))
 
     def on_downloads_complete(records: list[tuple[str, str]]) -> None:
         dl_progress.stop()
@@ -40,7 +54,9 @@ def download_and_display(ingest, query: str, *, location: str | None, max_docs: 
 
     result = ingest.download(
         query, center=location, max_docs=max_docs,
+        on_search_complete=on_search_complete,
         on_download=on_download,
+        on_download_failed=on_download_failed,
         on_downloads_complete=on_downloads_complete,
         on_chunk=on_chunk,
     )
@@ -49,7 +65,14 @@ def download_and_display(ingest, query: str, *, location: str | None, max_docs: 
         chunk_progress.stop()
 
     if not result.doc_details:
-        typer.echo("No downloadable documents found.")
+        if failures:
+            typer.echo(
+                f"Found {records_found[0] or len(failures)} candidate documents, but all downloads failed."
+            )
+            for title, error in failures:
+                typer.echo(f"  - {title}: {error}")
+        else:
+            typer.echo("No downloadable documents found.")
         return
 
     chunk_table = Table(title="Chunks per Document")
@@ -62,7 +85,12 @@ def download_and_display(ingest, query: str, *, location: str | None, max_docs: 
     typer.echo(f"Produced {result.chunks_added} chunks across {result.docs_added} documents.")
 
 
-def extract_with_progress(ingest, dashboard_port: int = 8765) -> int:
+def extract_with_progress(
+    ingest,
+    *,
+    dashboard_port: int = 8765,
+    min_ingest_confidence: float = 0.6,
+) -> int:
     """Run Ingest.extract() with a live terminal progress bar. Returns total triples."""
     from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 
@@ -83,6 +111,7 @@ def extract_with_progress(ingest, dashboard_port: int = 8765) -> int:
 
         return ingest.extract(
             dashboard_port=dashboard_port,
+            min_ingest_confidence=min_ingest_confidence,
             on_extract_start=on_extract_start,
             on_chunk_extracted=on_chunk_extracted,
         )
@@ -201,12 +230,22 @@ def extract(
     backend: str | None = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
     base_url: str | None = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
     api_key: str | None = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
-    min_certainty: float = typer.Option(0.5, help="Minimum certainty score for triples to be stored"),
+    min_ingest_confidence: float | None = typer.Option(
+        None,
+        "--min-ingest-confidence",
+        help="Minimum grounded ingest confidence for triples to be stored",
+    ),
+    min_certainty: float | None = typer.Option(
+        None,
+        "--min-certainty",
+        help="Deprecated alias for --min-ingest-confidence",
+    ),
     dashboard_port: int = typer.Option(8765, help="Port for the progress dashboard"),
     llm_workers: int | None = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
 ):
     """Extract entities and relations from chunks and write triples to the graph."""
     from core.llm.config import resolve_config
+    from services.ingest.config import load_ingest_config
     from services.ingest.service import Ingest
 
     cfg = resolve_config(
@@ -217,10 +256,22 @@ def extract(
         cli_workers=llm_workers,
         start_dir=db_path.parent,
     )
+    ingest_cfg = load_ingest_config(db_path.parent)
+    threshold = ingest_cfg.min_ingest_confidence
+    if min_certainty is not None:
+        typer.echo("Warning: --min-certainty is deprecated; use --min-ingest-confidence instead.")
+        threshold = min_certainty
+    if min_ingest_confidence is not None:
+        threshold = min_ingest_confidence
     typer.echo(f"Backend: {cfg.backend}, model: {cfg.model}, workers: {cfg.workers}")
+    typer.echo(f"Min ingest confidence: {threshold:.2f}")
 
     ingest = Ingest(db_path=db_path, llm_cfg=cfg)
-    total_triples = extract_with_progress(ingest, dashboard_port=dashboard_port)
+    total_triples = extract_with_progress(
+        ingest,
+        dashboard_port=dashboard_port,
+        min_ingest_confidence=threshold,
+    )
     typer.echo(f"Wrote {total_triples} triples.")
 
 

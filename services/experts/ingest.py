@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from services.experts.manager import ExpertMeta
+from services.experts.paths import build_expert_paths
 
 
 def ingest_for_expert(
@@ -12,7 +13,9 @@ def ingest_for_expert(
     llm_cfg,
     embed_client,
     *,
+    on_search_complete=None,
     on_download=None,
+    on_download_failed=None,
     on_downloads_complete=None,
     on_chunk=None,
     on_extract_start=None,
@@ -27,24 +30,23 @@ def ingest_for_expert(
     from services.ingest.service import Ingest
 
     experts_dir = Path(experts_dir)
-    expert_dir = experts_dir / meta.slug
-    expert_dir.mkdir(parents=True, exist_ok=True)
-    db_path = expert_dir / f"{meta.slug}.db"
-    embeddings_path = expert_dir / f"{meta.slug}.embeddings.npz"
-    downloads_dir = expert_dir / "downloads"
+    paths = build_expert_paths(experts_dir, meta.slug)
+    paths.expert_dir.mkdir(parents=True, exist_ok=True)
 
     ingest_svc = Ingest(
-        db_path=db_path,
+        db_path=paths.db_path,
         llm_cfg=llm_cfg,
         embed_client=embed_client,
-        embeddings_path=embeddings_path,
-        downloads_dir=downloads_dir,
+        embeddings_path=paths.embeddings_path,
+        downloads_dir=paths.downloads_dir,
     )
     result, _ = ingest_svc.run(
         "*",
         author=author,
         max_docs=meta.max_docs,
+        on_search_complete=on_search_complete,
         on_download=on_download,
+        on_download_failed=on_download_failed,
         on_downloads_complete=on_downloads_complete,
         on_chunk=on_chunk,
         on_extract_start=on_extract_start,

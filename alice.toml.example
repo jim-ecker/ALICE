@@ -48,10 +48,14 @@ relevance_filter_top_k = 50
 # ingest_certainty_cap = 0.9        # clip raw LLM confidence to this ceiling
 # ingest_certainty_exponent = 2.0   # curve the capped score down (>1 = more dampening)
 
+[ingest]
+min_ingest_confidence = 0.6
+
 [chat]
-db_path = "chat.db"
+db_path = "services/chat/data/chat.db"
 # ingest_folder = "/path/to/your/pdf/folder"   # default folder for `alice chat ingest-folder`
-embeddings_path = "chat.embeddings.npz"
+embeddings_path = "services/chat/data/chat.embeddings.npz"
+experts_dir = "services/experts/data"
 host = "127.0.0.1"
 port = 8766
 history_turns = 10

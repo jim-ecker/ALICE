@@ -18,6 +18,8 @@ wheels/
 # Runtime databases & indices
 *.db
 *.embeddings.npz
+services/chat/data/
+services/experts/data/
 
 # Downloaded documents
 downloads/
@@ -35,7 +37,7 @@ diagnose_retrieval.py
 # Reference PDFs (not redistributable)
 notes/
 
-# Development Tests
+# Development debugging
 tests/
 
 # Local ingest folder (this can be set by user)

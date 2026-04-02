@@ -6,21 +6,9 @@ from typing import Optional
 import typer
 from rich import print as rprint
 from rich.table import Table
+from services.chat.paths import resolve_chat_db_path
 
 chat_app = typer.Typer(help="ALICE chat service")
-
-
-def _resolve_chat_db_path(db_path: Path) -> Path:
-    """Resolve shorthand chat db paths into the service-local data directory.
-
-    Examples:
-    - `chat.db` stays `chat.db`
-    - `m2m` becomes `services/chat/data/m2m/m2m.db`
-    - `foo/bar` becomes `services/chat/data/foo/bar/bar.db`
-    """
-    if db_path.suffix == ".db":
-        return db_path
-    return Path("services/chat/data") / db_path / f"{db_path.name}.db"
 
 
 @chat_app.command()
@@ -36,7 +24,7 @@ def serve(
     """Start the ALICE chat server."""
     from services.chat.server import start
 
-    db_path = _resolve_chat_db_path(db_path)
+    db_path = resolve_chat_db_path(db_path)
 
     start(
         db_path,
@@ -77,14 +65,14 @@ def ingest(
         cli_api_key=api_key,
         cli_workers=llm_workers,
     )
-    db_path = _resolve_chat_db_path(db_path)
+    db_path = resolve_chat_db_path(db_path)
     chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
 
     typer.echo(f"Searching NTRS for '{query}'" + (f" at {location}" if location else "") + "...")
 
     dl_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
     dl_progress.start()
-    dl_task = dl_progress.add_task("Downloading PDFs...", total=max_docs)
+    dl_task = dl_progress.add_task("Searching NTRS...", total=max(1, max_docs))
 
     chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
     model_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"))
@@ -99,10 +87,24 @@ def ingest(
         "model_progress_started": False,
         "model_progress_stopped": False,
         "extract_progress_started": False,
+        "records_found": None,
+        "download_failures": [],
     }
 
+    def on_search_complete(total: int) -> None:
+        state["records_found"] = total
+        dl_progress.update(
+            dl_task,
+            description="Downloading PDFs..." if total else "No downloadable PDFs found",
+            total=max(1, total),
+        )
+
     def on_download(title: str) -> None:
+        dl_progress.update(dl_task, description=f"Downloading PDFs... {title[:48]}")
         dl_progress.advance(dl_task)
+
+    def on_download_failed(title: str, error: str) -> None:
+        state["download_failures"].append((title, error))
 
     def on_downloads_complete(records: list[tuple[str, str]]) -> None:
         dl_progress.stop()
@@ -168,7 +170,9 @@ def ingest(
         download_workers=workers,
         chunk_workers=chunk_workers,
         dashboard_port=dashboard_port,
+        on_search_complete=on_search_complete,
         on_download=on_download,
+        on_download_failed=on_download_failed,
         on_downloads_complete=on_downloads_complete,
         on_chunk=on_chunk,
         on_extract_start=on_extract_start,
@@ -183,7 +187,15 @@ def ingest(
         extract_progress.stop()
 
     if result.docs_added == 0:
-        typer.echo("No downloadable documents found.")
+        if state["download_failures"]:
+            typer.echo(
+                f"Found {state['records_found'] or len(state['download_failures'])} candidate documents, "
+                f"but all downloads failed."
+            )
+            for title, error in state["download_failures"]:
+                typer.echo(f"  - {title}: {error}")
+        else:
+            typer.echo("No downloadable documents found.")
         return
 
     typer.echo(f"Done: {result.docs_added} docs, {result.chunks_added} chunks, index: {result.index_size}")
@@ -336,7 +348,7 @@ def ingest_folder(
             raise typer.Exit(0)
 
     # Phase 4: Chunk + extract + build index
-    db_path = _resolve_chat_db_path(db_path)
+    db_path = resolve_chat_db_path(db_path)
     chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
 
     chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
@@ -472,7 +484,7 @@ def skip_unextracted(
     if not yes:
         typer.confirm("This will mark all unextracted chunks as skipped. Continue?", abort=True)
 
-    db_path = _resolve_chat_db_path(db_path)
+    db_path = resolve_chat_db_path(db_path)
     store = KuzuStore(db_path)
     count = store.skip_unextracted_chunks()
     typer.echo(f"Skipped {count} unextracted chunk(s).")

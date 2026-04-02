@@ -55,6 +55,8 @@ _HTML = """<!DOCTYPE html>
     .cert-high { color: #3fb950; }
     .cert-mid  { color: #d29922; }
     .cert-low  { color: #f85149; }
+    .evidence { color: #8b949e; font-size: 0.78rem; max-width: 420px; }
+    .raw-cert { color: #6e7681; font-size: 0.72rem; margin-top: 2px; }
     .triple-count { color: #8b949e; font-size: 0.8rem; margin-left: 0.5rem; }
   </style>
 </head>
@@ -85,7 +87,8 @@ _HTML = """<!DOCTYPE html>
             <th>Subject</th>
             <th>Relation</th>
             <th>Object</th>
-            <th style="width:90px">Certainty</th>
+            <th style="width:110px">Ingest confidence</th>
+            <th>Evidence</th>
           </tr>
         </thead>
         <tbody id="triple-tbody"></tbody>
@@ -171,13 +174,20 @@ _HTML = """<!DOCTYPE html>
       const tbody = document.getElementById("triple-tbody");
       const fragment = document.createDocumentFragment();
       triples.forEach(t => {
-        const certClass = t.certainty >= 0.8 ? 'cert-high' : t.certainty >= 0.5 ? 'cert-mid' : 'cert-low';
+        const certClass = t.ingest_confidence >= 0.8 ? 'cert-high' : t.ingest_confidence >= 0.5 ? 'cert-mid' : 'cert-low';
+        const rawCert = t.extractor_certainty != null
+          ? `<div class="raw-cert">raw ${(t.extractor_certainty * 100).toFixed(0)}%</div>`
+          : '';
+        const evidence = t.evidence_text
+          ? `<div class="evidence" title="${t.evidence_text.replace(/"/g, '&quot;')}">"${t.evidence_text}"</div>`
+          : '<div class="evidence">—</div>';
         const tr = document.createElement("tr");
         tr.innerHTML = `
           <td><span class="entity">${t.subject}</span><span class="etype">${t.subject_type}</span></td>
           <td><span class="relation">${t.relation}</span></td>
           <td><span class="entity">${t.object}</span><span class="etype">${t.object_type}</span></td>
-          <td class="${certClass}">${(t.certainty * 100).toFixed(0)}%</td>`;
+          <td class="${certClass}">${(t.ingest_confidence * 100).toFixed(0)}%${rawCert}</td>
+          <td>${evidence}</td>`;
         fragment.appendChild(tr);
       });
       tbody.insertBefore(fragment, tbody.firstChild);
@@ -204,7 +214,9 @@ def push_triple(
     relation: str,
     object_: str,
     object_type: str,
-    certainty: float,
+    ingest_confidence: float,
+    extractor_certainty: float | None = None,
+    evidence_text: str | None = None,
 ) -> None:
     with _lock:
         if len(_triples) >= _MAX_TRIPLES:
@@ -215,7 +227,9 @@ def push_triple(
             "relation": relation,
             "object": object_,
             "object_type": object_type,
-            "certainty": certainty,
+            "ingest_confidence": ingest_confidence,
+            "extractor_certainty": extractor_certainty,
+            "evidence_text": evidence_text,
         })
 
 

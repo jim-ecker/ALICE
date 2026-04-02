@@ -72,6 +72,10 @@ class CitationTriple(BaseModel):
     grounding_score: float | None
     provenance_count: int
     composite_trust: float
+    evidence_text: str | None = None
+    evidence_char_start: int | None = None
+    evidence_char_end: int | None = None
+    extractor_certainty: float | None = None
 
 
 class Citation(BaseModel):
@@ -258,6 +262,10 @@ def create_app(state, chat, cfg) -> FastAPI:
                     grounding_score=b.grounding_score,
                     provenance_count=b.provenance_count,
                     composite_trust=b.composite_trust,
+                    evidence_text=b.triple.evidence_text,
+                    evidence_char_start=b.triple.evidence_char_start,
+                    evidence_char_end=b.triple.evidence_char_end,
+                    extractor_certainty=b.triple.raw_certainty_score,
                 )
                 for fact_idx, b in bundle_map.get(chunk_id, [])
                 if fact_idx in cited_set
@@ -310,6 +318,7 @@ def create_app(state, chat, cfg) -> FastAPI:
     @app.get("/api/experts", response_model=ListExpertsResponse)
     async def list_experts():
         from services.experts.manager import ExpertRegistry
+        from services.experts.paths import build_expert_paths
 
         experts_dir = cfg.experts_dir
         registry = ExpertRegistry(experts_dir)
@@ -320,7 +329,7 @@ def create_app(state, chat, cfg) -> FastAPI:
                 name=m.name,
                 personality=m.personality,
                 expertise_areas=m.expertise_areas,
-                db_exists=(Path(experts_dir) / f"{m.slug}.db").exists(),
+                db_exists=build_expert_paths(experts_dir, m.slug).db_path.exists(),
             )
             for m in metas
         ]

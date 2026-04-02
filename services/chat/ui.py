@@ -179,6 +179,8 @@ CHAT_HTML = r"""<!DOCTYPE html>
   .pill-relevance .bar-fill { background: var(--accent2); }
   .pill-grounding .bar-fill { background: var(--yellow); }
   .pill-provenance .val { color: var(--text2); }
+  .triple-evidence { margin-top: 4px; padding-left: 20px; color: var(--text2); font-style: italic; line-height: 1.45; }
+  .triple-raw-certainty { padding-left: 20px; margin-top: 2px; font-size: 10px; color: var(--text2); opacity: 0.8; }
 
   /* Input area */
   #input-area { padding: 16px 24px; border-top: 1px solid var(--border);
@@ -574,12 +576,20 @@ function buildCitationsHTML(citations) {
         ${t.grounding_score != null ? trustPill('gnd', t.grounding_score, 'pill-grounding') : ''}
         ${t.provenance_count > 1 ? trustPill('prov', t.provenance_count, 'pill-provenance', false) : ''}
       </div>`;
+      const evidenceHTML = t.evidence_text
+        ? `<div class="triple-evidence">"${esc(t.evidence_text)}"</div>`
+        : '';
+      const rawCertHTML = t.extractor_certainty != null
+        ? `<div class="triple-raw-certainty">raw extractor certainty ${Math.round(t.extractor_certainty * 100)}%</div>`
+        : '';
       return `<div class="triple-row" data-fact="${t.fact_index}">
         <span class="fact-label">Fact_${t.fact_index}</span>
         <span class="entity">${esc(t.subject)}</span>
         <span class="relation"> --[${esc(t.relation)}]→ </span>
         <span class="entity">${esc(t.object_)}</span>
         ${trustBars}
+        ${evidenceHTML}
+        ${rawCertHTML}
       </div>`;
     }).join('');
     const isLocal = c.document_url && c.document_url.startsWith('file://');

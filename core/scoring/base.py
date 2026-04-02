@@ -12,7 +12,7 @@ from core.graph.retrieval import CitationChunk, RetrievedTriple
 class TrustBundle:
     """All trust signals for a single retrieved triple."""
     triple: RetrievedTriple
-    ingest_certainty: float        # LLM self-report at extraction time (from RELATES_TO.certainty_score)
+    ingest_certainty: float        # grounded ingest confidence stored on RELATES_TO.certainty_score
     relevance_score: float | None  # cosine(query_vec, embed(triple_text)) — query alignment
     grounding_score: float | None  # LLM entailment: does source chunk text support this triple?
     provenance_count: int          # distinct chunks that independently yielded same (s, r, o)
