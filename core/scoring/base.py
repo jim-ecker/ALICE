@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -24,10 +24,23 @@ class ScoredRetrievalResult:
     """Retrieval result with per-triple trust scores."""
     chunks: list[CitationChunk]
     trust_bundles: list[TrustBundle]  # scored and optionally filtered
+    embedding_chunk_ids: list[str] = field(default_factory=list)  # chunk_ids from embedding search, ordered by cosine similarity
 
     def rerank(self) -> "ScoredRetrievalResult":
         """Return a new ScoredRetrievalResult with chunks and triples sorted by composite_trust descending."""
-        sorted_bundles = sorted(self.trust_bundles, key=lambda b: b.composite_trust, reverse=True)
+        # Build rank lookup: embedding-retrieved chunks get their cosine-sim rank (lower = better);
+        # entity-only chunks get INF so they lose tie-breaks against embedding chunks.
+        emb_rank: dict[str, int] = {cid: i for i, cid in enumerate(self.embedding_chunk_ids)}
+        INF = len(self.embedding_chunk_ids)
+
+        # Sort primary by composite_trust descending, secondary by embedding rank ascending.
+        # This ensures that when the same (s, r, o) triple exists in multiple chunks, the
+        # instance from the most query-relevant chunk wins deduplication rather than whichever
+        # happened to have a marginally higher ingest certainty.
+        sorted_bundles = sorted(
+            self.trust_bundles,
+            key=lambda b: (-b.composite_trust, emb_rank.get(b.triple.chunk_id, INF)),
+        )
 
         # Deduplicate: keep highest-scored bundle per unique (subject, relation, object)
         seen: set[tuple[str, str, str]] = set()
@@ -50,7 +63,7 @@ class ScoredRetrievalResult:
             key=lambda c: chunk_scores.get(c.chunk_id, 0.0),
             reverse=True,
         )
-        return ScoredRetrievalResult(chunks=sorted_chunks, trust_bundles=deduped)
+        return ScoredRetrievalResult(chunks=sorted_chunks, trust_bundles=deduped, embedding_chunk_ids=self.embedding_chunk_ids)
 
 
 class TripleScorer(ABC):

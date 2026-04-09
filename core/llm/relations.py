@@ -51,7 +51,28 @@ def extract_relations(text: str, entities: list[Entity], backend: LLMBackend) ->
         raw = _parse_json(response)
     except (json.JSONDecodeError, ValueError):
         return []
-    entity_map = {e.name: e for e in entities}
+    # Build lookup map; also map "Name (TYPE)" → entity, so if the LLM echoes
+    # the formatted entity string back as the subject/object we still resolve it.
+    entity_map: dict[str, Entity] = {}
+    for e in entities:
+        entity_map[e.name] = e
+        entity_map[f"{e.name} ({e.type})"] = e
+
+    def _resolve(name: str) -> Entity:
+        """Return a known Entity for name, trying progressively looser matches."""
+        if name in entity_map:
+            return entity_map[name]
+        # Strip trailing " (TYPE)" if the model included it
+        stripped = re.sub(r"\s*\([^)]+\)$", "", name).strip()
+        if stripped and stripped in entity_map:
+            return entity_map[stripped]
+        # Strip any whitespace the model may have removed (e.g. "UCARE PROJECT" → "UCAREPROJECT")
+        no_space = name.replace(" ", "")
+        for key, entity in entity_map.items():
+            if key.replace(" ", "") == no_space:
+                return entity
+        return Entity(name=stripped or name, type="UNKNOWN")
+
     triples = []
     for r in raw:
         subj = r.get("subject")
@@ -63,8 +84,8 @@ def extract_relations(text: str, entities: list[Entity], backend: LLMBackend) ->
             certainty = float(r.get("certainty", 0.0))
         except (TypeError, ValueError):
             certainty = 0.0
-        subject = entity_map.get(subj, Entity(name=subj, type="UNKNOWN"))
-        object_ = entity_map.get(obj, Entity(name=obj, type="UNKNOWN"))
+        subject = _resolve(subj)
+        object_ = _resolve(obj)
         triples.append(Triple(
             subject=subject,
             relation=rel,

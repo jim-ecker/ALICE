@@ -152,7 +152,7 @@ class Chat:
         """
         configured_db = self._default_chat_db_path
         if db_path == configured_db:
-            return db_path.parent / self._chat_cfg.embeddings_path
+            return self._chat_cfg.embeddings_path
         return db_path.with_name(f"{db_path.stem}.embeddings.npz")
 
     def _update_state_from(self, new_state: ServiceState) -> None:

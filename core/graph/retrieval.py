@@ -72,14 +72,28 @@ def find_entity_chunks(
     # Collect entity names that appear in the query
     entity_result = conn.execute("MATCH (e:Entity) RETURN e.name")
     all_long_names: list[str] = []
+    all_names: list[str] = []
     while entity_result.has_next():
         row = entity_result.get_next()
         name: str = row[0] or ""
+        all_names.append(name)
         if len(name) >= min_name_len:
             all_long_names.append(name)
 
-    # Primary pass: full entity name is a substring of the query
-    matched_names = [n for n in all_long_names if n.lower() in query_lower]
+    # Exact-word pass: entity name exactly matches a query word — safe for short
+    # names (e.g. acronyms like "UCARE") that would otherwise be excluded by min_name_len.
+    seen: set[str] = set()
+    matched_names = []
+    for n in all_names:
+        if n.lower() in query_words:
+            matched_names.append(n)
+            seen.add(n)
+
+    # Primary pass: full entity name (long only) is a substring of the query
+    for n in all_long_names:
+        if n not in seen and n.lower() in query_lower:
+            matched_names.append(n)
+            seen.add(n)
 
     # Fallback: if no substring matches, try word-level — any significant word
     # (≥4 chars) of the entity name appears as an exact word in the query.
@@ -92,6 +106,21 @@ def find_entity_chunks(
         matched_names = [
             n for n in all_long_names
             if any(w in query_words for w in n.lower().split() if len(w) >= 4)
+        ]
+
+    # Second fallback: query word is a prefix of an entity-name token.
+    # Handles cases where the LLM fused an acronym+suffix into one token
+    # (e.g. "UCAREPROJECT") so "ucare" (5+ chars) still finds it.
+    # Punctuation is stripped from tokens so "(ucare)" also matches "ucare".
+    if not matched_names:
+        matched_names = [
+            n for n in all_long_names
+            if n not in seen and any(
+                re.sub(r"[^\w]", "", tok).startswith(qw)
+                for tok in n.lower().split()
+                for qw in query_words
+                if len(qw) >= 5 and len(tok) > len(qw)
+            )
         ]
 
     if not matched_names:

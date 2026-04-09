@@ -23,6 +23,12 @@ Return a JSON array of objects with exactly these fields:
 
 Only extract relations grounded in the provided text.
 Use the exact wording from the passage for evidence_text. Do not paraphrase it.
+
+Academic paper conventions: In paper headers, an author name followed by an institution \
+name on the next line implies an "affiliated with" relation. A footnote of the form \
+"* Role Title, Institution" implies the author "has role" Role Title and "affiliated with" \
+Institution. Extract these implicit relations.
+
 Return only the JSON array. No explanation, no markdown fences."""
 
 

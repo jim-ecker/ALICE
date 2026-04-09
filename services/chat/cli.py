@@ -83,10 +83,12 @@ def ingest(
         "extract_task": None,
         "url_map": {},
         "chunk_details": [],
+        "dl_progress_stopped": False,
         "chunk_progress_stopped": False,
         "model_progress_started": False,
         "model_progress_stopped": False,
         "extract_progress_started": False,
+        "extract_total_chunks": 0,
         "records_found": None,
         "download_failures": [],
     }
@@ -108,6 +110,7 @@ def ingest(
 
     def on_downloads_complete(records: list[tuple[str, str]]) -> None:
         dl_progress.stop()
+        state["dl_progress_stopped"] = True
         for t, u in records:
             state["url_map"][t] = u
         tbl = Table(title="Downloaded Documents")
@@ -125,6 +128,10 @@ def ingest(
             chunk_progress.advance(state["chunk_task"])
 
     def on_extract_start(total_chunks: int) -> None:
+        if not state["dl_progress_stopped"]:
+            dl_progress.stop()
+            state["dl_progress_stopped"] = True
+        state["extract_total_chunks"] = total_chunks
         if not state["chunk_progress_stopped"]:
             chunk_progress.stop()
             state["chunk_progress_stopped"] = True
@@ -181,12 +188,19 @@ def ingest(
 
     if not state["chunk_progress_stopped"] and state["chunk_task"] is not None:
         chunk_progress.stop()
+    if not state["dl_progress_stopped"]:
+        dl_progress.stop()
     if state["model_progress_started"] and not state["model_progress_stopped"]:
         model_progress.stop()
     if state["extract_progress_started"]:
         extract_progress.stop()
 
     if result.docs_added == 0:
+        if state["extract_total_chunks"]:
+            typer.echo(
+                f"Resumed extraction for {state['extract_total_chunks']} existing chunks; index: {result.index_size}"
+            )
+            return
         if state["download_failures"]:
             typer.echo(
                 f"Found {state['records_found'] or len(state['download_failures'])} candidate documents, "
@@ -391,6 +405,31 @@ def ingest_folder(
         extract_progress.stop()
 
     typer.echo(f"Done: {result.docs_added} docs, {result.chunks_added} chunks, index: {result.index_size}")
+
+
+@chat_app.command()
+def rebuild_index(
+) -> None:
+    """Re-embed all chunks in the database and write a fresh embeddings file. Skips extraction."""
+    from core.embeddings.client import EmbeddingsClient
+    from services.chat.config import load_chat_config
+    from services.ingest.service import Ingest
+
+    chat_cfg, embed_cfg, _, _ = load_chat_config()
+
+    if not chat_cfg.db_path.exists():
+        typer.echo(f"Database not found: {chat_cfg.db_path}", err=True)
+        raise typer.Exit(1)
+
+    embed_client = EmbeddingsClient(embed_cfg)
+    ingest = Ingest(
+        db_path=chat_cfg.db_path,
+        embed_client=embed_client,
+        embeddings_path=chat_cfg.embeddings_path,
+    )
+    typer.echo(f"Rebuilding embedding index from {chat_cfg.db_path}...")
+    ingest.build_index()
+    typer.echo(f"Saved to {chat_cfg.embeddings_path}")
 
 
 @chat_app.command()

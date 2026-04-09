@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
-_SENTENCE_RE = re.compile(r"\S.*?(?:[.!?](?=\s|$)|\n{2,}|$)", re.S)
+_SENTENCE_RE = re.compile(r"\S.*?(?:(?<! [A-Z])[.!?](?=\s|$)|\n{2,}|$)", re.S)
 _HEDGE_RE = re.compile(
     r"\b(?:may|might|could|suggest|suggests|appears|appear|possible|possibly|likely|approximately)\b",
     re.I,

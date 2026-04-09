@@ -54,7 +54,7 @@ class Retriever:
             chunk_map=chunk_map,
         )
 
-        return ScoredRetrievalResult(chunks=result.chunks, trust_bundles=trust_bundles).rerank()
+        return ScoredRetrievalResult(chunks=result.chunks, trust_bundles=trust_bundles, embedding_chunk_ids=embedding_ids).rerank()
 
     def update_index(self, new_index: EmbeddingIndex) -> None:
         """Thread-safe swap of the embedding index."""

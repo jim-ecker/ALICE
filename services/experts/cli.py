@@ -135,6 +135,7 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
     state: dict = {
         "extract_task": None,
         "extract_started": False,
+        "extract_total_chunks": 0,
         "dl_stopped": False,
         "records_found": None,
         "download_failures": [],
@@ -173,6 +174,7 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
             "Extracting triples...", total=total_chunks
         )
         state["extract_started"] = True
+        state["extract_total_chunks"] = total_chunks
 
     def on_chunk_extracted(done, total, triples):
         if state["extract_task"] is not None:
@@ -210,6 +212,10 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         registry.update(meta.slug, queries_ingested=updated_queries, expertise_areas=areas)
         if areas:
             rprint(f"[dim]Expertise areas:[/dim] {', '.join(areas)}")
+    elif state["extract_total_chunks"]:
+        rprint(
+            f"[green]Resumed extraction:[/green] {state['extract_total_chunks']} existing chunks"
+        )
     elif state["download_failures"]:
         rprint(
             f"[red]Found {state['records_found'] or len(state['download_failures'])} candidate documents, "

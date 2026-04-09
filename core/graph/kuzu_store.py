@@ -256,6 +256,12 @@ class KuzuStore(GraphStore):
             parameters={"ids": chunk_ids, "ts": ts},
         )
 
+    def _clear_chunk_triples(self, chunk_id: str) -> None:
+        self._conn.execute(
+            "MATCH ()-[rel:RELATES_TO]->() WHERE rel.chunk_id = $chunk_id DELETE rel",
+            parameters={"chunk_id": chunk_id},
+        )
+
     def skip_unextracted_chunks(self) -> int:
         """Stamp all currently-unextracted chunks as skipped. Returns count stamped."""
         from datetime import datetime, timezone
@@ -269,6 +275,13 @@ class KuzuStore(GraphStore):
             parameters={"ids": ids, "ts": ts},
         )
         return len(ids)
+
+    def count_unextracted_chunks(self) -> int:
+        """Return the number of chunks still waiting for extraction."""
+        result = self._conn.execute(
+            "MATCH (c:Chunk) WHERE c.extracted_at IS NULL RETURN count(c)"
+        )
+        return int(result.get_next()[0])
 
     def read_document_chunk_counts(self, chunk_ids: set[str] | None = None) -> list[DocumentChunkCount]:
         result = self._conn.execute(
@@ -316,7 +329,7 @@ class KuzuStore(GraphStore):
         self._conn.execute("MATCH (e:Entity) DELETE e")
         self._conn.execute("MATCH (c:Chunk) SET c.extracted_at = NULL")
 
-    def write_triple(
+    def _write_triple(
         self,
         subject: str,
         subject_type: str,
@@ -374,4 +387,84 @@ class KuzuStore(GraphStore):
                 "evidence_scope_score": evidence_scope_score,
                 "confidence_version": confidence_version,
             },
+        )
+
+    def write_chunk_triples(
+        self,
+        chunk_id: str,
+        triples: list,
+        *,
+        min_ingest_confidence: float = 0.6,
+    ) -> list:
+        """Atomically replace one chunk's triples and stamp it extracted."""
+        from datetime import datetime, timezone
+
+        kept_triples = [triple for triple in triples if triple.certainty_score >= min_ingest_confidence]
+        ts = datetime.now(timezone.utc).isoformat()
+
+        self._conn.execute("BEGIN TRANSACTION")
+        try:
+            self._clear_chunk_triples(chunk_id)
+            for triple in kept_triples:
+                self._write_triple(
+                    subject=triple.subject.name,
+                    subject_type=triple.subject.type,
+                    relation=triple.relation,
+                    object_=triple.object_.name,
+                    object_type=triple.object_.type,
+                    certainty_score=triple.certainty_score,
+                    chunk_id=triple.chunk_id,
+                    raw_certainty_score=triple.raw_certainty_score,
+                    evidence_text=triple.evidence_text,
+                    evidence_char_start=triple.evidence_char_start,
+                    evidence_char_end=triple.evidence_char_end,
+                    evidence_alignment_score=triple.evidence_alignment_score,
+                    entity_anchor_score=triple.entity_anchor_score,
+                    evidence_scope_score=triple.evidence_scope_score,
+                    confidence_version=triple.confidence_version,
+                )
+            self._conn.execute(
+                "MATCH (c:Chunk {id: $chunk_id}) SET c.extracted_at = $ts",
+                parameters={"chunk_id": chunk_id, "ts": ts},
+            )
+        except BaseException:
+            self._conn.execute("ROLLBACK")
+            raise
+        self._conn.execute("COMMIT")
+        return kept_triples
+
+    def write_triple(
+        self,
+        subject: str,
+        subject_type: str,
+        relation: str,
+        object_: str,
+        object_type: str,
+        certainty_score: float,
+        chunk_id: str,
+        raw_certainty_score: float | None = None,
+        evidence_text: str | None = None,
+        evidence_char_start: int | None = None,
+        evidence_char_end: int | None = None,
+        evidence_alignment_score: float | None = None,
+        entity_anchor_score: float | None = None,
+        evidence_scope_score: float | None = None,
+        confidence_version: str | None = None,
+    ) -> None:
+        self._write_triple(
+            subject=subject,
+            subject_type=subject_type,
+            relation=relation,
+            object_=object_,
+            object_type=object_type,
+            certainty_score=certainty_score,
+            chunk_id=chunk_id,
+            raw_certainty_score=raw_certainty_score,
+            evidence_text=evidence_text,
+            evidence_char_start=evidence_char_start,
+            evidence_char_end=evidence_char_end,
+            evidence_alignment_score=evidence_alignment_score,
+            entity_anchor_score=entity_anchor_score,
+            evidence_scope_score=evidence_scope_score,
+            confidence_version=confidence_version,
         )

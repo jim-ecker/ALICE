@@ -180,7 +180,8 @@ class Ingest:
         on_chunk(title, chunk_count) is called after each document is chunked.
 
         offset: if None, the stored next-offset for this query is used and auto-advanced after the run.
-                If provided explicitly, that value is used and the stored offset is updated to offset+max_docs.
+                If provided explicitly, that value is used and the stored offset is updated to the
+                furthest raw NTRS offset scanned during the run.
         """
         from services.ingest.ntrs import search, download_pdf, CENTER_CODES
         from services.ingest.parser import DoclingParser, make_source_document
@@ -205,94 +206,135 @@ class Ingest:
             # keep fetching additional pages until we have max_docs new records
             # or NTRS is exhausted.
             records_to_fetch: list = []
+            seen_records: list = []
             current_offset = offset
-            while len(records_to_fetch) < max_docs:
-                batch, next_offset = search(
-                    query, center=center_code,
-                    max_docs=max_docs - len(records_to_fetch),
-                    author=author,
-                    offset=current_offset,
-                )
-                if not batch:
-                    break
-                for record in batch:
-                    if store.document_exists_by_url(record.citation_url):
-                        print(f"Skipping '{record.title[:60]}' (already in graph)")
+            record_status: dict[str, str] = {}
+
+            def persist_safe_offset() -> int:
+                safe_offset = offset
+                for record in seen_records:
+                    status = record_status.get(record.citation_url, "pending")
+                    if status in {"already_in_graph", "committed", "already_ingested"}:
+                        safe_offset = max(safe_offset, record.resume_offset)
                     else:
-                        records_to_fetch.append(record)
-                        if len(records_to_fetch) >= max_docs:
-                            break
-                if next_offset <= current_offset:
-                    break  # NTRS exhausted, no forward progress
-                current_offset = next_offset
+                        break
+                store.set_ingest_offset(query_key, safe_offset)
+                return safe_offset
 
-            if on_search_complete:
-                on_search_complete(len(records_to_fetch))
-            LOGGER.info(
-                "Prepared %d NTRS records for download for query=%r author=%r center=%r",
-                len(records_to_fetch),
-                query,
-                author,
-                center,
-            )
-            store.set_ingest_offset(query_key, current_offset)
+            try:
+                while len(records_to_fetch) < max_docs:
+                    batch, next_offset = search(
+                        query, center=center_code,
+                        max_docs=max_docs - len(records_to_fetch),
+                        author=author,
+                        offset=current_offset,
+                    )
+                    if not batch:
+                        break
+                    for record in batch:
+                        seen_records.append(record)
+                        if store.document_exists_by_url(record.citation_url):
+                            print(f"Skipping '{record.title[:60]}' (already in graph)")
+                            record_status[record.citation_url] = "already_in_graph"
+                        else:
+                            records_to_fetch.append(record)
+                            record_status[record.citation_url] = "pending"
+                            if len(records_to_fetch) >= max_docs:
+                                break
+                    if next_offset <= current_offset:
+                        break  # NTRS exhausted, no forward progress
+                    current_offset = next_offset
 
-            if not records_to_fetch:
-                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+                if on_search_complete:
+                    on_search_complete(len(records_to_fetch))
+                LOGGER.info(
+                    "Prepared %d NTRS records for download for query=%r author=%r center=%r",
+                    len(records_to_fetch),
+                    query,
+                    author,
+                    center,
+                )
 
-            # Parallel download — only records not already in graph
-            downloaded: list[tuple[Path, str, str]] = []
-            with ThreadPoolExecutor(max_workers=min(self._download_workers, len(records_to_fetch))) as executor:
-                futures = {executor.submit(download_pdf, record, self._downloads_dir): record for record in records_to_fetch}
-                for future in as_completed(futures):
-                    record = futures[future]
-                    try:
-                        dest = future.result()
-                        downloaded.append((dest, record.title, record.citation_url))
-                        if on_download:
-                            on_download(record.title)
-                    except Exception as e:
-                        LOGGER.warning("Failed to download %r from %s: %s", record.title, record.citation_url, e)
-                        if on_download_failed:
-                            on_download_failed(record.title, str(e))
-                        print(f"Failed to download '{record.title[:60]}...': {e}")
+                if not records_to_fetch:
+                    return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
 
-            if not downloaded:
-                return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
-
-            if on_downloads_complete:
-                on_downloads_complete([(title, url) for _, title, url in downloaded])
-
-            # Belt-and-suspenders: also check by SHA256 hash in case the URL changed.
-            to_chunk: list[tuple[Path, str, str]] = []
-            for path, title, url in downloaded:
-                doc_id = hashlib.sha256(path.read_bytes()).hexdigest()
-                if store.document_exists(doc_id):
-                    print(f"Skipping '{title[:60]}' (already ingested)")
-                    if on_chunk:
-                        on_chunk(title, 0)
-                else:
-                    to_chunk.append((path, title, url))
-
-            if to_chunk:
-                num_workers = min(self._chunk_workers, len(to_chunk))
-                executor, _ = _make_chunk_executor(num_workers)
-                with executor:
-                    futures2 = {
-                        executor.submit(_chunk_document, (path, title, url, True)): (path, title, url)
-                        for path, title, url in to_chunk
+                # Parallel download — only records not already in graph
+                downloaded: list[tuple[Path, object]] = []
+                download_executor = ThreadPoolExecutor(max_workers=min(self._download_workers, len(records_to_fetch)))
+                try:
+                    futures = {
+                        download_executor.submit(download_pdf, record, self._downloads_dir): record
+                        for record in records_to_fetch
                     }
-                    for future in as_completed(futures2):
+                    for future in as_completed(futures):
+                        record = futures[future]
                         try:
-                            source, chunks, title, citation_url = future.result()
-                            store.write_document_with_chunks(source, title, chunks)
-                            total_chunks += len(chunks)
-                            doc_details.append((title, citation_url, len(chunks)))
-                            if on_chunk:
-                                on_chunk(title, len(chunks))
+                            dest = future.result()
+                            downloaded.append((dest, record))
+                            record_status[record.citation_url] = "downloaded"
+                            if on_download:
+                                on_download(record.title)
                         except Exception as e:
-                            _, title, _ = futures2[future]
-                            print(f"Failed to chunk '{title[:60]}...': {e}")
+                            record_status[record.citation_url] = "download_failed"
+                            LOGGER.warning("Failed to download %r from %s: %s", record.title, record.citation_url, e)
+                            if on_download_failed:
+                                on_download_failed(record.title, str(e))
+                            print(f"Failed to download '{record.title[:60]}...': {e}")
+                except BaseException:
+                    download_executor.shutdown(wait=False, cancel_futures=True)
+                    raise
+                else:
+                    download_executor.shutdown(wait=True)
+
+                if not downloaded:
+                    return DownloadResult(docs_added=0, chunks_added=0, doc_details=[])
+
+                if on_downloads_complete:
+                    on_downloads_complete([(record.title, record.citation_url) for _, record in downloaded])
+
+                # Belt-and-suspenders: also check by SHA256 hash in case the URL changed.
+                to_chunk: list[tuple[Path, object]] = []
+                for path, record in downloaded:
+                    doc_id = hashlib.sha256(path.read_bytes()).hexdigest()
+                    if store.document_exists(doc_id):
+                        print(f"Skipping '{record.title[:60]}' (already ingested)")
+                        record_status[record.citation_url] = "already_ingested"
+                        if on_chunk:
+                            on_chunk(record.title, 0)
+                    else:
+                        to_chunk.append((path, record))
+
+                if to_chunk:
+                    num_workers = min(self._chunk_workers, len(to_chunk))
+                    chunk_executor, _ = _make_chunk_executor(num_workers)
+                    try:
+                        futures2 = {
+                            chunk_executor.submit(
+                                _chunk_document,
+                                (path, record.title, record.citation_url, True),
+                            ): (path, record)
+                            for path, record in to_chunk
+                        }
+                        for future in as_completed(futures2):
+                            _, record = futures2[future]
+                            try:
+                                source, chunks, title, citation_url = future.result()
+                                store.write_document_with_chunks(source, title, chunks)
+                                total_chunks += len(chunks)
+                                doc_details.append((title, citation_url, len(chunks)))
+                                record_status[record.citation_url] = "committed"
+                                if on_chunk:
+                                    on_chunk(title, len(chunks))
+                            except Exception as e:
+                                record_status[record.citation_url] = "chunk_failed"
+                                print(f"Failed to chunk '{record.title[:60]}...': {e}")
+                    except BaseException:
+                        chunk_executor.shutdown(wait=False, cancel_futures=True)
+                        raise
+                    else:
+                        chunk_executor.shutdown(wait=True)
+            finally:
+                persist_safe_offset()
 
         return DownloadResult(docs_added=len(doc_details), chunks_added=total_chunks, doc_details=doc_details)
 
@@ -337,11 +379,12 @@ class Ingest:
             # Use ThreadPoolExecutor so the LLM backend (MLX/Metal) stays in the main process.
             # ProcessPoolExecutor with spawn hangs on macOS because Metal cannot initialise
             # in a spawned child process.
-            with ThreadPoolExecutor(
+            executor = ThreadPoolExecutor(
                 max_workers=self._llm_cfg.workers,
                 initializer=init_worker,
                 initargs=(self._llm_cfg,),
-            ) as executor:
+            )
+            try:
                 future_to_chunk = {
                     executor.submit(extract_chunk, c.id, c.document_id, c.content): c
                     for c in chunks
@@ -351,26 +394,12 @@ class Ingest:
                     triples_this_chunk = 0
                     try:
                         _doc_id, triples = future.result()
-                        for triple in triples:
-                            if triple.certainty_score < min_ingest_confidence:
-                                continue
-                            store.write_triple(
-                                subject=triple.subject.name,
-                                subject_type=triple.subject.type,
-                                relation=triple.relation,
-                                object_=triple.object_.name,
-                                object_type=triple.object_.type,
-                                certainty_score=triple.certainty_score,
-                                chunk_id=triple.chunk_id,
-                                raw_certainty_score=triple.raw_certainty_score,
-                                evidence_text=triple.evidence_text,
-                                evidence_char_start=triple.evidence_char_start,
-                                evidence_char_end=triple.evidence_char_end,
-                                evidence_alignment_score=triple.evidence_alignment_score,
-                                entity_anchor_score=triple.entity_anchor_score,
-                                evidence_scope_score=triple.evidence_scope_score,
-                                confidence_version=triple.confidence_version,
-                            )
+                        kept_triples = store.write_chunk_triples(
+                            chunk.id,
+                            triples,
+                            min_ingest_confidence=min_ingest_confidence,
+                        )
+                        for triple in kept_triples:
                             push_triple(
                                 subject=triple.subject.name,
                                 subject_type=triple.subject.type,
@@ -387,13 +416,14 @@ class Ingest:
                         print(f"[extract] chunk {chunk.id} failed: {exc}")
                     finally:
                         chunks_done += 1
-                        try:
-                            store.mark_chunks_extracted([chunk.id])
-                        except Exception as stamp_exc:
-                            print(f"[extract] failed to stamp chunk {chunk.id}: {stamp_exc}")
                         advance_chunk(chunk.document_id)
                         if on_chunk_extracted:
                             on_chunk_extracted(chunks_done, total_chunks, triples_this_chunk)
+            except BaseException:
+                executor.shutdown(wait=False, cancel_futures=True)
+                raise
+            else:
+                executor.shutdown(wait=True)
 
         return total_triples
 
@@ -499,6 +529,8 @@ class Ingest:
         on_chunk_extracted=None,
     ) -> tuple[IngestResult, EmbeddingIndex]:
         """End-to-end pipeline: download -> extract -> build index."""
+        from core.graph import KuzuStore
+
         dl = self.download(
             query, center=center, max_docs=max_docs, author=author, offset=offset,
             on_search_complete=on_search_complete,
@@ -507,7 +539,9 @@ class Ingest:
             on_downloads_complete=on_downloads_complete,
             on_chunk=on_chunk,
         )
-        if dl.chunks_added > 0:
+        with KuzuStore(self._db_path) as store:
+            pending_chunks = store.count_unextracted_chunks()
+        if pending_chunks > 0:
             self.extract(dashboard_port=dashboard_port, on_extract_start=on_extract_start, on_chunk_extracted=on_chunk_extracted)
         index = self.build_index()
         return IngestResult(docs_added=dl.docs_added, chunks_added=dl.chunks_added, index_size=len(index)), index

@@ -34,6 +34,7 @@ class NTRSRecord:
     download_path: str
     citation_url: str
     subject_categories: list[str] = None  # type: ignore[assignment]
+    resume_offset: int = 0
 
     def __post_init__(self):
         if self.subject_categories is None:
@@ -50,7 +51,8 @@ def search(
     """Search NTRS for records with downloadable PDFs.
 
     Returns (records, next_page_from) where next_page_from is the raw NTRS
-    result offset after the last page fetched — pass it as `offset` to resume.
+    result offset after the last raw result examined — pass it as `offset`
+    to resume.
     """
     records = []
     page_from = offset
@@ -89,25 +91,33 @@ def search(
         if not results:
             break
 
+        consumed_results = 0
         for result in results:
+            consumed_results += 1
             if not result.get("downloadsAvailable"):
                 continue
             downloads = result.get("downloads", [])
             pdf = next((d for d in downloads if d.get("mimetype") == "application/pdf"), None)
             if not pdf:
+                pdf = next((d for d in downloads if "pdf" in d.get("links", {})), None)
+            if not pdf:
                 continue
+            raw_name = pdf["name"]
+            if not raw_name.lower().endswith(".pdf"):
+                raw_name = Path(raw_name).stem + ".pdf"
             records.append(NTRSRecord(
                 id=result["id"],
                 title=result.get("title", ""),
-                filename=pdf["name"],
+                filename=raw_name,
                 download_path=pdf["links"]["pdf"],
                 citation_url=f"https://ntrs.nasa.gov/citations/{result['id']}",
                 subject_categories=result.get("subjectCategories", []),
+                resume_offset=page_from + consumed_results,
             ))
             if len(records) >= max_docs:
                 break
 
-        page_from += len(results)
+        page_from += consumed_results
         if len(results) < page_size:
             break
 
