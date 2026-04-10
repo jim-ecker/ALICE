@@ -338,6 +338,56 @@ class Ingest:
 
         return DownloadResult(docs_added=len(doc_details), chunks_added=total_chunks, doc_details=doc_details)
 
+    def ingest_one(
+        self,
+        record: "NTRSRecord",
+        dashboard_port: int = 8765,
+        on_download=None,
+        on_chunk=None,
+        on_extract_start=None,
+        on_chunk_extracted=None,
+    ) -> "tuple[IngestResult, EmbeddingIndex]":
+        """Ingest a single pre-fetched NTRS record. No offset tracking."""
+        from services.ingest.ntrs import download_pdf
+        from core.graph import KuzuStore
+        import hashlib
+
+        self._downloads_dir.mkdir(parents=True, exist_ok=True)
+        with KuzuStore(self._db_path) as store:
+            if store.document_exists_by_url(record.citation_url):
+                print(f"'{record.title[:60]}' is already in the graph.")
+                index = self.build_index()
+                return IngestResult(docs_added=0, chunks_added=0, index_size=len(index)), index
+
+            dest = download_pdf(record, self._downloads_dir)
+            if on_download:
+                on_download(record.title)
+
+            doc_id = hashlib.sha256(dest.read_bytes()).hexdigest()
+            if store.document_exists(doc_id):
+                print(f"'{record.title[:60]}' already ingested (content hash match).")
+                index = self.build_index()
+                return IngestResult(docs_added=0, chunks_added=0, index_size=len(index)), index
+
+            executor, _ = _make_chunk_executor(1)
+            with executor:
+                source, chunks, title, citation_url = executor.submit(
+                    _chunk_document,
+                    (dest, record.title, record.citation_url, True),
+                ).result()
+            store.write_document_with_chunks(source, title, chunks)
+            if on_chunk:
+                on_chunk(title, len(chunks))
+
+        if chunks:
+            self.extract(
+                dashboard_port=dashboard_port,
+                on_extract_start=on_extract_start,
+                on_chunk_extracted=on_chunk_extracted,
+            )
+        index = self.build_index()
+        return IngestResult(docs_added=1, chunks_added=len(chunks), index_size=len(index)), index
+
     def extract(
         self,
         dashboard_port: int = 8765,

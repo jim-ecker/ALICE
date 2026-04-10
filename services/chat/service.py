@@ -213,6 +213,21 @@ class Chat:
         self._state.expert_name = meta.name
         self._state.expert_persona = meta.personality or None
 
+    def _ensure_llm_and_embed(self) -> None:
+        db_path = self._chat_cfg.db_path
+        if self._llm_cfg is None:
+            from core.llm.config import resolve_config
+            self._llm_cfg = resolve_config(
+                cli_model=None,
+                cli_backend=None,
+                cli_base_url=None,
+                cli_api_key=None,
+                cli_workers=None,
+                start_dir=db_path.parent,
+            )
+        if self._embed_client is None:
+            self._embed_client = EmbeddingsClient(self._embed_cfg)
+
     def ingest(
         self,
         query: str,
@@ -237,18 +252,7 @@ class Chat:
         db_path = self._chat_cfg.db_path
         emb_path = self._resolve_embeddings_path(db_path)
 
-        if self._llm_cfg is None:
-            from core.llm.config import resolve_config
-            self._llm_cfg = resolve_config(
-                cli_model=None,
-                cli_backend=None,
-                cli_base_url=None,
-                cli_api_key=None,
-                cli_workers=None,
-                start_dir=db_path.parent,
-            )
-        if self._embed_client is None:
-            self._embed_client = EmbeddingsClient(self._embed_cfg)
+        self._ensure_llm_and_embed()
 
         ingest_svc = Ingest(
             db_path=db_path,
@@ -297,18 +301,7 @@ class Chat:
         db_path = self._chat_cfg.db_path
         emb_path = self._resolve_embeddings_path(db_path)
 
-        if self._llm_cfg is None:
-            from core.llm.config import resolve_config
-            self._llm_cfg = resolve_config(
-                cli_model=None,
-                cli_backend=None,
-                cli_base_url=None,
-                cli_api_key=None,
-                cli_workers=None,
-                start_dir=db_path.parent,
-            )
-        if self._embed_client is None:
-            self._embed_client = EmbeddingsClient(self._embed_cfg)
+        self._ensure_llm_and_embed()
 
         ingest_svc = Ingest(
             db_path=db_path,
@@ -320,6 +313,52 @@ class Chat:
         result, new_index = ingest_svc.ingest_local_files(
             confirmed_docs,
             dashboard_port=dashboard_port,
+            on_chunk=on_chunk,
+            on_extract_start=on_extract_start,
+            on_chunk_extracted=on_chunk_extracted,
+        )
+        if self._state is not None:
+            self._state.retriever.update_index(new_index)
+        return IngestResult(
+            docs_added=result.docs_added,
+            chunks_added=result.chunks_added,
+            index_size=result.index_size,
+        )
+
+    def ingest_by_id(
+        self,
+        ntrs_id: str,
+        *,
+        dashboard_port: int = 8765,
+        on_download=None,
+        on_chunk=None,
+        on_extract_start=None,
+        on_chunk_extracted=None,
+    ) -> IngestResult:
+        """Fetch a single NTRS document by ID and run the full ingest pipeline."""
+        from services.ingest.ntrs import fetch_by_id
+        from services.ingest.service import Ingest
+
+        record = fetch_by_id(ntrs_id)
+        if record is None:
+            raise ValueError(f"NTRS {ntrs_id}: not found or no downloadable PDF.")
+
+        db_path = self._chat_cfg.db_path
+        emb_path = self._resolve_embeddings_path(db_path)
+        self._ensure_llm_and_embed()
+
+        ingest_svc = Ingest(
+            db_path=db_path,
+            llm_cfg=self._llm_cfg,
+            embed_client=self._embed_client,
+            embeddings_path=emb_path,
+            downloads_dir=db_path.parent / "downloads",
+            chunk_workers=1,
+        )
+        result, new_index = ingest_svc.ingest_one(
+            record,
+            dashboard_port=dashboard_port,
+            on_download=on_download,
             on_chunk=on_chunk,
             on_extract_start=on_extract_start,
             on_chunk_extracted=on_chunk_extracted,

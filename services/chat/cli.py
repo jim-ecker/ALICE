@@ -215,6 +215,69 @@ def ingest(
     typer.echo(f"Done: {result.docs_added} docs, {result.chunks_added} chunks, index: {result.index_size}")
 
 
+@chat_app.command("ingest-id")
+def ingest_id(
+    ntrs_id: str = typer.Argument(..., help="NTRS document number (e.g. 20205002508)"),
+    db_path: Path = typer.Option(Path("chat.db"), "--db-path", help="Path to the chat KuzuDB database"),
+    model: Optional[str] = typer.Option(None, help="LLM model name (overrides alice.toml)"),
+    backend: Optional[str] = typer.Option(None, help="mlx | vllm | openai-compatible (overrides alice.toml)"),
+    base_url: Optional[str] = typer.Option(None, help="Base URL for OpenAI-compatible endpoint"),
+    api_key: Optional[str] = typer.Option(None, help="API key for OpenAI-compatible endpoint"),
+    llm_workers: Optional[int] = typer.Option(None, help="Parallel LLM worker processes (overrides alice.toml)"),
+    dashboard_port: int = typer.Option(8765, help="Port for the extraction progress dashboard"),
+) -> None:
+    """Fetch a single NTRS document by ID and ingest it into the knowledge graph."""
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+    from core.llm.config import resolve_config
+    from services.chat.service import Chat
+
+    llm_cfg = resolve_config(
+        cli_model=model, cli_backend=backend, cli_base_url=base_url,
+        cli_api_key=api_key, cli_workers=llm_workers,
+    )
+    db_path = resolve_chat_db_path(db_path)
+    chat = Chat(db_path=db_path, llm_cfg=llm_cfg)
+
+    typer.echo(f"Fetching NTRS document {ntrs_id}...")
+
+    extract_progress = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn())
+    extract_started = [False]
+    extract_task = [None]
+
+    def on_extract_start(total_chunks: int) -> None:
+        extract_progress.start()
+        extract_task[0] = extract_progress.add_task("Extracting triples...", total=total_chunks)
+        extract_started[0] = True
+
+    def on_chunk_extracted(chunks_done: int, total_chunks: int, triples_this_chunk: int) -> None:
+        if extract_started[0] and extract_task[0] is not None:
+            extract_progress.update(
+                extract_task[0], completed=chunks_done, total=total_chunks,
+                description=f"Extracting triples... (+{triples_this_chunk})",
+            )
+
+    try:
+        result = chat.ingest_by_id(
+            ntrs_id,
+            dashboard_port=dashboard_port,
+            on_download=lambda title: typer.echo(f"Downloaded: {title}"),
+            on_chunk=lambda title, n: typer.echo(f"Chunked: {title} ({n} chunks)"),
+            on_extract_start=on_extract_start,
+            on_chunk_extracted=on_chunk_extracted,
+        )
+    except ValueError as e:
+        typer.echo(str(e), err=True)
+        raise typer.Exit(1)
+    finally:
+        if extract_started[0]:
+            extract_progress.stop()
+
+    if result.docs_added == 0:
+        typer.echo("Document was already in the graph. No changes made.")
+    else:
+        typer.echo(f"Done: {result.docs_added} doc, {result.chunks_added} chunks, index: {result.index_size}")
+
+
 @chat_app.command("ingest-folder")
 def ingest_folder(
     folder: Optional[Path] = typer.Argument(None, help="Folder containing PDF files to ingest (overrides alice.toml ingest_folder)"),

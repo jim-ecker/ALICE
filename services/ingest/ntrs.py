@@ -140,6 +140,33 @@ def get_title(citation_url: str) -> str | None:
     return response.json().get("title")
 
 
+def fetch_by_id(ntrs_id: str) -> NTRSRecord | None:
+    """Fetch a single NTRS record by document ID. Returns None if not found or no PDF."""
+    response = requests.get(f"{BASE_URL}/citations/{ntrs_id}", timeout=SEARCH_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    result = response.json()
+    if not result.get("downloadsAvailable"):
+        return None
+    downloads = result.get("downloads", [])
+    pdf = next((d for d in downloads if d.get("mimetype") == "application/pdf"), None)
+    if not pdf:
+        pdf = next((d for d in downloads if "pdf" in d.get("links", {})), None)
+    if not pdf:
+        return None
+    raw_name = pdf["name"]
+    if not raw_name.lower().endswith(".pdf"):
+        raw_name = Path(raw_name).stem + ".pdf"
+    return NTRSRecord(
+        id=result["id"],
+        title=result.get("title", ""),
+        filename=raw_name,
+        download_path=pdf["links"]["pdf"],
+        citation_url=f"https://ntrs.nasa.gov/citations/{result['id']}",
+        subject_categories=result.get("subjectCategories", []),
+        resume_offset=0,
+    )
+
+
 def download_pdf(record: NTRSRecord, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     dest = output_dir / record.filename
