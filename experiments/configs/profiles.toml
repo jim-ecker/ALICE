@@ -1,0 +1,71 @@
+# ALICE Retrieval Profile Configuration
+#
+# [global] sets defaults for all profiles.
+# Each [profiles.<name>] section overrides only the keys it specifies.
+#
+# Retrieval parameters:
+#   top_k_chunks          — ANN index query size (chunks fetched by embedding similarity)
+#   max_context_chunks    — max chunks passed to the LLM prompt
+#   entity_hop_depth      — graph traversal depth for entity-matched chunk augmentation
+#   max_hop2_entities     — max entities considered at hop depth 2
+#   max_tokens            — LLM max output tokens
+#   min_composite_trust   — post-retrieval filter: drop facts below this composite score
+#
+# Scoring weights (must be non-negative; normalised internally):
+#   ingest_certainty_weight  — weight of LLM extraction confidence
+#   relevance_weight         — weight of embedding cosine similarity to query
+#   provenance_weight        — weight of multi-source corroboration bonus
+#   grounding_weight         — weight of LLM entailment check (expensive; off by default)
+#   relevance_filter_top_k   — keep only top-k facts by composite score (0 = keep all)
+#   ingest_certainty_cap     — clip raw ingest certainty to this ceiling (1.0 = no cap)
+#   ingest_certainty_exponent — power-curve dampening (1.0 = identity)
+
+[global]
+top_k_chunks = 15
+max_context_chunks = 20
+entity_hop_depth = 2
+max_hop2_entities = 20
+max_tokens = 2048
+min_composite_trust = 0.0
+ingest_certainty_weight = 0.4
+relevance_weight = 0.4
+provenance_weight = 0.2
+grounding_weight = 0.0
+relevance_filter_top_k = 50
+ingest_certainty_cap = 1.0
+ingest_certainty_exponent = 1.0
+
+[profiles.base]
+enabled = true
+description = "Default retrieval settings — mirrors alice.toml defaults."
+
+[profiles.high_recall]
+enabled = true
+description = "Broader chunk coverage via higher top-k."
+top_k_chunks = 25
+max_context_chunks = 30
+
+[profiles.deep_graph]
+enabled = true
+description = "Deeper entity graph traversal for multi-hop questions."
+entity_hop_depth = 3
+max_hop2_entities = 40
+
+[profiles.trust_filtered]
+enabled = true
+description = "Drop low-trust facts before prompting to reduce noise."
+min_composite_trust = 0.6
+
+[profiles.relevance_heavy]
+enabled = true
+description = "Upweight embedding relevance; downweight ingest certainty."
+ingest_certainty_weight = 0.2
+relevance_weight = 0.6
+provenance_weight = 0.2
+
+[profiles.compact]
+enabled = true
+description = "Tighter context window — fewer chunks, fewer facts."
+top_k_chunks = 8
+max_context_chunks = 10
+relevance_filter_top_k = 20

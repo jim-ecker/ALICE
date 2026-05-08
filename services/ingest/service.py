@@ -342,7 +342,9 @@ class Ingest:
         self,
         record: "NTRSRecord",
         dashboard_port: int = 8765,
+        on_search_complete=None,
         on_download=None,
+        on_downloads_complete=None,
         on_chunk=None,
         on_extract_start=None,
         on_chunk_extracted=None,
@@ -356,12 +358,19 @@ class Ingest:
         with KuzuStore(self._db_path) as store:
             if store.document_exists_by_url(record.citation_url):
                 print(f"'{record.title[:60]}' is already in the graph.")
+                if on_search_complete:
+                    on_search_complete(0)
                 index = self.build_index()
                 return IngestResult(docs_added=0, chunks_added=0, index_size=len(index)), index
+
+            if on_search_complete:
+                on_search_complete(1)
 
             dest = download_pdf(record, self._downloads_dir)
             if on_download:
                 on_download(record.title)
+            if on_downloads_complete:
+                on_downloads_complete([(record.title, record.citation_url)])
 
             doc_id = hashlib.sha256(dest.read_bytes()).hexdigest()
             if store.document_exists(doc_id):

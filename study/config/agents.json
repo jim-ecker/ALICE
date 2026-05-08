@@ -1,0 +1,9 @@
+{
+  "agents": [
+    {
+      "agent_id": "generic_llm",
+      "label": "Generic AI Assistant",
+      "class": "generic_llm"
+    }
+  ]
+}

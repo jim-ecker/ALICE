@@ -47,6 +47,20 @@ def _normalize_entity_name(name: str) -> str:
     return re.sub(r'\b([A-Za-z]) ([a-z])', r'\1\2', name)
 
 
+def _strip_middle_initials(name: str) -> str:
+    """Remove middle initials for fuzzy name matching.
+
+    'James E. Ecker' → 'James Ecker'
+    'C. L. Taylor'   → 'C. L. Taylor' (not touched — all parts are initials)
+    """
+    tokens = name.split()
+    filtered = [t for t in tokens if not re.match(r'^[A-Za-z]\.$', t)]
+    # Only return stripped version if we removed something and at least two tokens remain
+    if len(filtered) >= 2 and len(filtered) < len(tokens):
+        return " ".join(filtered)
+    return name
+
+
 def find_entity_chunks(
     conn: kuzu.Connection,
     query_text: str,
@@ -89,9 +103,13 @@ def find_entity_chunks(
             matched_names.append(n)
             seen.add(n)
 
-    # Primary pass: full entity name (long only) is a substring of the query
+    # Primary pass: full entity name (long only) is a substring of the query.
+    # Also try with middle initials stripped so "James E. Ecker" matches "james ecker".
     for n in all_long_names:
-        if n not in seen and n.lower() in query_lower:
+        if n not in seen and (
+            n.lower() in query_lower
+            or _strip_middle_initials(n).lower() in query_lower
+        ):
             matched_names.append(n)
             seen.add(n)
 

@@ -30,6 +30,10 @@ downloads/
 # Generated outputs
 graph.html
 backups/
+experiments/results/
+
+# Experiment study data (sessions + evaluations — runtime, not committed)
+study/data/
 
 # Dev/debug scripts
 diagnose_retrieval.py

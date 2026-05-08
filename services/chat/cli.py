@@ -240,28 +240,105 @@ def ingest_id(
 
     typer.echo(f"Fetching NTRS document {ntrs_id}...")
 
+    dl_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
+    dl_progress.start()
+    dl_task = dl_progress.add_task("Fetching document...", total=1)
+
+    chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
+    model_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"))
     extract_progress = Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), BarColumn(), MofNCompleteColumn())
-    extract_started = [False]
-    extract_task = [None]
+
+    state: dict = {
+        "chunk_task": None,
+        "extract_task": None,
+        "url_map": {},
+        "chunk_details": [],
+        "dl_progress_stopped": False,
+        "chunk_progress_stopped": False,
+        "model_progress_started": False,
+        "model_progress_stopped": False,
+        "extract_progress_started": False,
+    }
+
+    def on_search_complete(total: int) -> None:
+        dl_progress.update(
+            dl_task,
+            description="Downloading PDF..." if total else "Document already in graph.",
+            total=max(1, total),
+        )
+
+    def on_download(title: str) -> None:
+        dl_progress.update(dl_task, description=f"Downloading PDF... {title[:48]}")
+        dl_progress.advance(dl_task)
+
+    def on_downloads_complete(records: list[tuple[str, str]]) -> None:
+        dl_progress.stop()
+        state["dl_progress_stopped"] = True
+        for t, u in records:
+            state["url_map"][t] = u
+        tbl = Table(title="Downloaded Documents")
+        tbl.add_column("Title", ratio=1)
+        tbl.add_column("URL", style="blue", no_wrap=True)
+        for t, u in records:
+            tbl.add_row(t, u)
+        rprint(tbl)
+        chunk_progress.start()
+        state["chunk_task"] = chunk_progress.add_task("Chunking...", total=len(records))
+
+    def on_chunk(title: str, chunk_count: int) -> None:
+        state["chunk_details"].append((title, state["url_map"].get(title, ""), chunk_count))
+        if state["chunk_task"] is not None:
+            chunk_progress.advance(state["chunk_task"])
 
     def on_extract_start(total_chunks: int) -> None:
-        extract_progress.start()
-        extract_task[0] = extract_progress.add_task("Extracting triples...", total=total_chunks)
-        extract_started[0] = True
+        if not state["dl_progress_stopped"]:
+            dl_progress.stop()
+            state["dl_progress_stopped"] = True
+        if not state["chunk_progress_stopped"]:
+            chunk_progress.stop()
+            state["chunk_progress_stopped"] = True
+            tbl = Table(title="Chunks per Document")
+            tbl.add_column("Title", ratio=1)
+            tbl.add_column("URL", style="blue", no_wrap=True)
+            tbl.add_column("Chunks", justify="right")
+            for t, u, c in state["chunk_details"]:
+                tbl.add_row(t, u, str(c))
+            rprint(tbl)
+        model_progress.start()
+        model_progress.add_task("Loading model...", total=None)
+        state["model_progress_started"] = True
 
     def on_chunk_extracted(chunks_done: int, total_chunks: int, triples_this_chunk: int) -> None:
-        if extract_started[0] and extract_task[0] is not None:
-            extract_progress.update(
-                extract_task[0], completed=chunks_done, total=total_chunks,
-                description=f"Extracting triples... (+{triples_this_chunk})",
-            )
+        if state["model_progress_started"] and not state["model_progress_stopped"]:
+            model_progress.stop()
+            state["model_progress_stopped"] = True
+        if not state["chunk_progress_stopped"]:
+            chunk_progress.stop()
+            state["chunk_progress_stopped"] = True
+            tbl = Table(title="Chunks per Document")
+            tbl.add_column("Title", ratio=1)
+            tbl.add_column("URL", style="blue", no_wrap=True)
+            tbl.add_column("Chunks", justify="right")
+            for t, u, c in state["chunk_details"]:
+                tbl.add_row(t, u, str(c))
+            rprint(tbl)
+        if not state["extract_progress_started"]:
+            extract_progress.start()
+            state["extract_task"] = extract_progress.add_task("Extracting triples...", total=total_chunks)
+            state["extract_progress_started"] = True
+        extract_progress.update(
+            state["extract_task"], completed=chunks_done, total=total_chunks,
+            description=f"Extracting triples... (+{triples_this_chunk})",
+        )
 
     try:
         result = chat.ingest_by_id(
             ntrs_id,
             dashboard_port=dashboard_port,
-            on_download=lambda title: typer.echo(f"Downloaded: {title}"),
-            on_chunk=lambda title, n: typer.echo(f"Chunked: {title} ({n} chunks)"),
+            on_search_complete=on_search_complete,
+            on_download=on_download,
+            on_downloads_complete=on_downloads_complete,
+            on_chunk=on_chunk,
             on_extract_start=on_extract_start,
             on_chunk_extracted=on_chunk_extracted,
         )
@@ -269,7 +346,13 @@ def ingest_id(
         typer.echo(str(e), err=True)
         raise typer.Exit(1)
     finally:
-        if extract_started[0]:
+        if not state["chunk_progress_stopped"] and state["chunk_task"] is not None:
+            chunk_progress.stop()
+        if not state["dl_progress_stopped"]:
+            dl_progress.stop()
+        if state["model_progress_started"] and not state["model_progress_stopped"]:
+            model_progress.stop()
+        if state["extract_progress_started"]:
             extract_progress.stop()
 
     if result.docs_added == 0:

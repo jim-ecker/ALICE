@@ -39,8 +39,7 @@ def compute_expertise_areas(db_path: Path, llm_cfg=None) -> list[str]:
     if not urls:
         return []
 
-    from services.ingest.ntrs import ntrs_id_from_url
-    import requests
+    from services.ingest.ntrs import ntrs_id_from_url, _session
 
     seen: set[str] = set()
     areas: list[str] = []
@@ -50,7 +49,7 @@ def compute_expertise_areas(db_path: Path, llm_cfg=None) -> list[str]:
         if not ntrs_id:
             continue
         try:
-            resp = requests.get(
+            resp = _session().get(
                 f"https://ntrs.nasa.gov/api/citations/{ntrs_id}", timeout=15
             )
             resp.raise_for_status()

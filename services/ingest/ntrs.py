@@ -7,6 +7,13 @@ import requests
 
 BASE_URL = "https://ntrs.nasa.gov/api"
 LOGGER = logging.getLogger(__name__)
+_USER_AGENT = "Mozilla/5.0 (compatible; ALICE-bot/1.0)"
+
+
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers["User-Agent"] = _USER_AGENT
+    return s
 
 SEARCH_TIMEOUT_SECONDS = 30
 PDF_CONNECT_TIMEOUT_SECONDS = 15
@@ -78,7 +85,7 @@ def search(
             page_from,
             page_size,
         )
-        response = requests.get(
+        response = _session().get(
             f"{BASE_URL}/citations/search",
             params=params,
             timeout=SEARCH_TIMEOUT_SECONDS,
@@ -135,14 +142,14 @@ def get_title(citation_url: str) -> str | None:
     ntrs_id = ntrs_id_from_url(citation_url)
     if not ntrs_id:
         return None
-    response = requests.get(f"{BASE_URL}/citations/{ntrs_id}", timeout=SEARCH_TIMEOUT_SECONDS)
+    response = _session().get(f"{BASE_URL}/citations/{ntrs_id}", timeout=SEARCH_TIMEOUT_SECONDS)
     response.raise_for_status()
     return response.json().get("title")
 
 
 def fetch_by_id(ntrs_id: str) -> NTRSRecord | None:
     """Fetch a single NTRS record by document ID. Returns None if not found or no PDF."""
-    response = requests.get(f"{BASE_URL}/citations/{ntrs_id}", timeout=SEARCH_TIMEOUT_SECONDS)
+    response = _session().get(f"{BASE_URL}/citations/{ntrs_id}", timeout=SEARCH_TIMEOUT_SECONDS)
     response.raise_for_status()
     result = response.json()
     if not result.get("downloadsAvailable"):

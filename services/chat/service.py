@@ -27,9 +27,10 @@ class ServiceState:
     llm_cfg: Any            # LLMConfig
     embed_client: Any       # EmbeddingsClient
     db: Any                 # kuzu.Database
-    active_expert: str | None = None   # slug, or None = standard chat mode
-    expert_name: str | None = None     # display name
-    expert_persona: str | None = None  # personality prompt
+    active_expert: str | None = None         # slug, or None = standard chat mode
+    expert_name: str | None = None           # display name
+    expert_persona: str | None = None        # personality prompt
+    expert_persona_strength: float = 1.0    # 0.0–1.0 personality intensity
 
 
 class Chat:
@@ -186,6 +187,7 @@ class Chat:
         self._state.active_expert = None
         self._state.expert_name = None
         self._state.expert_persona = None
+        self._state.expert_persona_strength = 1.0
 
     def switch_expert(self, slug: str) -> None:
         """Hot-swap to a virtual expert's database without restarting the server.
@@ -212,6 +214,7 @@ class Chat:
         self._state.active_expert = slug
         self._state.expert_name = meta.name
         self._state.expert_persona = meta.personality or None
+        self._state.expert_persona_strength = meta.personality_strength
 
     def _ensure_llm_and_embed(self) -> None:
         db_path = self._chat_cfg.db_path
@@ -330,7 +333,9 @@ class Chat:
         ntrs_id: str,
         *,
         dashboard_port: int = 8765,
+        on_search_complete=None,
         on_download=None,
+        on_downloads_complete=None,
         on_chunk=None,
         on_extract_start=None,
         on_chunk_extracted=None,
@@ -358,7 +363,9 @@ class Chat:
         result, new_index = ingest_svc.ingest_one(
             record,
             dashboard_port=dashboard_port,
+            on_search_complete=on_search_complete,
             on_download=on_download,
+            on_downloads_complete=on_downloads_complete,
             on_chunk=on_chunk,
             on_extract_start=on_extract_start,
             on_chunk_extracted=on_chunk_extracted,

@@ -1,0 +1,41 @@
+{
+  "question_set_id": "alice_eval_v1",
+  "questions": [
+    {
+      "q_id": "Q1",
+      "canonical": "What are the primary research contributions and technical innovations in this expert's published work?"
+    },
+    {
+      "q_id": "Q2",
+      "canonical": "What open problems or future directions does this expert identify in their research?"
+    },
+    {
+      "q_id": "Q3",
+      "canonical": "How does this expert's work address challenges in autonomous systems or aerospace applications?"
+    },
+    {
+      "q_id": "Q4",
+      "canonical": "What methodologies or experimental approaches does this expert use in their research?"
+    },
+    {
+      "q_id": "Q5",
+      "canonical": "What collaborations or interdisciplinary connections appear in this expert's work?"
+    },
+    {
+      "q_id": "Q6",
+      "canonical": "What are the key findings or results from this expert's most impactful publications?"
+    },
+    {
+      "q_id": "Q7",
+      "canonical": "How does this expert's research relate to current state-of-the-art in their field?"
+    },
+    {
+      "q_id": "Q8",
+      "canonical": "What safety, reliability, or validation concerns does this expert address in their work?"
+    },
+    {
+      "q_id": "Q9",
+      "canonical": "Describe the expert's perspective on the current limitations of their research area."
+    }
+  ]
+}

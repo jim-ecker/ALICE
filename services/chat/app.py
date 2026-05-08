@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from core.scoring.base import ScoredRetrievalResult
 from services.chat.ui import CHAT_HTML
+from services.experiment.ui import EXPERIMENT_HTML
 
 
 # ── Pydantic models ──────────────────────────────────────────────────────────
@@ -142,9 +143,16 @@ def create_app(state, chat, cfg) -> FastAPI:
     if _images_dir.exists():
         app.mount("/static", StaticFiles(directory=str(_images_dir)), name="static")
 
+    from services.experiment.api import make_experiment_router
+    app.include_router(make_experiment_router(cfg, state))
+
     @app.get("/", response_class=HTMLResponse)
     async def index():
         return HTMLResponse(content=CHAT_HTML)
+
+    @app.get("/experiment", response_class=HTMLResponse)
+    async def experiment_ui():
+        return HTMLResponse(content=EXPERIMENT_HTML)
 
     @app.get("/api/status", response_model=StatusResponse)
     async def get_status():
@@ -218,6 +226,7 @@ def create_app(state, chat, cfg) -> FastAPI:
             max_context_chunks=cfg.max_context_chunks,
             expert_name=state.expert_name,
             expert_persona=state.expert_persona,
+            expert_persona_strength=state.expert_persona_strength,
         )
 
         # 4. Generate answer

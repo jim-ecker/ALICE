@@ -17,6 +17,24 @@ You are ALICE, an AI research assistant grounded exclusively in a knowledge grap
 """ + _CITATION_RULES
 
 
+def _persona_framing(strength: float) -> tuple[str, bool]:
+    """Return (instruction_phrase, include_query_reminder) for a given strength.
+
+    instruction_phrase is appended after the persona text in the system prompt.
+    include_query_reminder controls whether the per-query persona nudge is added.
+    """
+    if strength <= 0.0:
+        return "", False
+    elif strength <= 0.30:
+        return "Let this subtly inform your tone.", False
+    elif strength <= 0.60:
+        return "Let this come through in your tone and word choice.", True
+    elif strength <= 0.90:
+        return "Let this come through strongly in your tone and word choice.", True
+    else:
+        return "Fully embody this persona in every response.", True
+
+
 def build_prompt(
     query: str,
     retrieval: ScoredRetrievalResult,
@@ -26,6 +44,7 @@ def build_prompt(
     max_context_chunks: int = 20,
     expert_name: str | None = None,
     expert_persona: str | None = None,
+    expert_persona_strength: float = 1.0,
 ) -> tuple[list[dict[str, str]], dict[int, str]]:
     """Build the LLM message list for a chat turn.
 
@@ -37,15 +56,17 @@ def build_prompt(
     fact_index_to_chunk_id: dict[int, str] = {}
 
     # 1. System message
-    if expert_name and expert_persona:
+    phrase, include_reminder = _persona_framing(expert_persona_strength)
+    if expert_name and expert_persona and expert_persona_strength > 0.0:
         system_content = (
             f"You are {expert_name}, a NASA researcher and subject matter expert "
             f"answering questions grounded in a knowledge graph built from your published research.\n"
-            f"{expert_persona}\n\n"
+            f"{expert_persona}\n"
+            f"{phrase}\n\n"
             + _CITATION_RULES
         )
-    elif expert_persona:
-        system_content = expert_persona + "\n\n" + _CITATION_RULES
+    elif expert_persona and expert_persona_strength > 0.0:
+        system_content = expert_persona + f"\n{phrase}\n\n" + _CITATION_RULES
     else:
         system_content = _SYSTEM_PROMPT
     messages.append({"role": "system", "content": system_content})
@@ -106,10 +127,10 @@ def build_prompt(
         messages.append({"role": msg.role, "content": msg.content})
 
     # 4. Current query (with persona reminder injected at generation point for expert mode)
-    if expert_name and expert_persona:
+    if expert_name and expert_persona and include_reminder:
         query_content = (
             f"[Persona reminder: You are {expert_name}. {expert_persona} "
-            f"Let this come through in your tone and word choice.]\n\n{query}"
+            f"{phrase}]\n\n{query}"
         )
     else:
         query_content = query

@@ -1,0 +1,53 @@
+[global]
+max_examples_per_dataset = 100
+
+# Profiles to run for every dataset (must exist in profiles.toml)
+profile_names = [
+  "base",
+  "high_recall",
+  "trust_filtered",
+]
+
+# ── Local datasets ────────────────────────────────────────────────────────────
+
+[[datasets]]
+name = "local_eval"
+enabled = true
+loader = "jsonl"
+path = "experiments/data/local_eval.jsonl"
+id_field = "id"
+question_field = "question"
+answers_field = "answers"
+
+# ── Hugging Face datasets (disabled by default; run: uv add datasets) ─────────
+
+[[datasets]]
+name = "hotpotqa_validation"
+enabled = false
+loader = "hf"
+hf_name = "hotpot_qa"
+hf_subset = "fullwiki"
+split = "validation"
+id_field = "_id"
+question_field = "question"
+answers_field = "answer"
+
+[[datasets]]
+name = "2wiki_validation"
+enabled = false
+loader = "hf"
+hf_name = "xanhho/2WikiMultihopQA"
+split = "validation"
+id_field = "_id"
+question_field = "question"
+answers_field = "answer"
+
+[[datasets]]
+name = "popqa_test"
+enabled = false
+loader = "hf"
+hf_name = "akariasai/PopQA"
+split = "test"
+id_field = "id"
+question_field = "question"
+answers_field = "possible_answers"

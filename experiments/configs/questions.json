@@ -1,0 +1,41 @@
+{
+  "question_set_id": "alice_core_v1",
+  "questions": [
+    {
+      "q_id": "Q1",
+      "canonical": "What did Javier work on?"
+    },
+    {
+      "q_id": "Q2",
+      "canonical": "Who is Javier?"
+    },
+    {
+      "q_id": "Q3",
+      "canonical": "Who does Javier work for?"
+    },
+    {
+      "q_id": "Q4",
+      "canonical": "What is Javier's full name?"
+    },
+    {
+      "q_id": "Q5",
+      "canonical": "What did Song et al. focus on?"
+    },
+    {
+      "q_id": "Q6",
+      "canonical": "What is NPAS?"
+    },
+    {
+      "q_id": "Q7",
+      "canonical": "What are the current gaps in autonomous systems research?"
+    },
+    {
+      "q_id": "Q8",
+      "canonical": "What is the moon?"
+    },
+    {
+      "q_id": "Q9",
+      "canonical": "What challenges exist in urban air mobility?"
+    }
+  ]
+}

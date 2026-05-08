@@ -209,7 +209,10 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         db_path = build_expert_paths(experts_dir, meta.slug).db_path
         from services.experts.expertise import compute_expertise_areas
         areas = compute_expertise_areas(db_path)
-        registry.update(meta.slug, queries_ingested=updated_queries, expertise_areas=areas)
+        update_kwargs: dict = {"queries_ingested": updated_queries}
+        if areas:
+            update_kwargs["expertise_areas"] = areas
+        registry.update(meta.slug, **update_kwargs)
         if areas:
             rprint(f"[dim]Expertise areas:[/dim] {', '.join(areas)}")
     elif state["extract_total_chunks"]:
@@ -258,6 +261,7 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
                 "Refresh expertise areas",
                 "Add alias (ingest under alternate name)",
                 "Edit personality",
+                "Edit personality strength",
                 "Reset database (delete DB + embeddings)",
                 "Delete expert",
                 "Back",
@@ -297,6 +301,28 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
                 registry.update(meta.slug, personality=new_persona)
                 meta = registry.get(meta.slug) or meta
                 rprint("[green]Personality updated.[/green]")
+        elif action == "Edit personality strength":
+            current_pct = int(meta.personality_strength * 100)
+            rprint(
+                "[dim]0% = no personality applied  "
+                "1–30% = subtle  "
+                "31–60% = moderate  "
+                "61–90% = strong  "
+                "91–100% = full[/dim]"
+            )
+            raw = questionary.text(
+                "Personality strength (0–100):",
+                default=str(current_pct),
+            ).ask()
+            if raw is not None:
+                try:
+                    pct = max(0, min(100, int(raw)))
+                except ValueError:
+                    rprint("[red]Invalid value — enter a number between 0 and 100.[/red]")
+                else:
+                    registry.update(meta.slug, personality_strength=pct / 100)
+                    meta = registry.get(meta.slug) or meta
+                    rprint(f"[green]Personality strength set to {pct}%.[/green]")
         elif action == "Reset database (delete DB + embeddings)":
             confirmed = questionary.confirm(
                 f"Delete DB and embeddings for '{meta.name}'?"
@@ -334,6 +360,7 @@ def _view_expert(meta, experts_dir) -> None:
     tbl.add_row("Slug", meta.slug)
     tbl.add_row("Aliases", ", ".join(meta.aliases) or "(none)")
     tbl.add_row("Personality", meta.personality or "(none)")
+    tbl.add_row("Personality Strength", f"{int(meta.personality_strength * 100)}%")
     tbl.add_row("Queries Ingested", ", ".join(meta.queries_ingested) or "(none)")
     tbl.add_row("Max Docs", str(meta.max_docs))
     tbl.add_row("Created At", meta.created_at)

@@ -20,6 +20,7 @@ class ExpertMeta:
     max_docs: int
     created_at: str
     expertise_areas: list[str] = None  # type: ignore[assignment]
+    personality_strength: float = 1.0
 
     def __post_init__(self):
         if self.expertise_areas is None:
@@ -31,6 +32,7 @@ class ExpertMeta:
             "slug": self.slug,
             "aliases": self.aliases,
             "personality": self.personality,
+            "personality_strength": self.personality_strength,
             "queries_ingested": self.queries_ingested,
             "max_docs": self.max_docs,
             "created_at": self.created_at,
@@ -44,6 +46,7 @@ class ExpertMeta:
             slug=data["slug"],
             aliases=data.get("aliases", []),
             personality=data.get("personality", ""),
+            personality_strength=float(data.get("personality_strength", 1.0)),
             queries_ingested=data.get("queries_ingested", []),
             max_docs=data.get("max_docs", 30),
             created_at=data.get("created_at", ""),

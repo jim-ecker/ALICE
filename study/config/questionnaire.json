@@ -1,0 +1,52 @@
+[
+  {
+    "id": "current_role",
+    "type": "text",
+    "label": "Current role / title",
+    "required": true
+  },
+  {
+    "id": "organization",
+    "type": "text",
+    "label": "Organization",
+    "required": true
+  },
+  {
+    "id": "years_experience",
+    "type": "number",
+    "label": "Years of relevant professional experience",
+    "required": true,
+    "min": 0,
+    "max": 60
+  },
+  {
+    "id": "familiarity_with_alice",
+    "type": "likert",
+    "label": "How familiar are you with the ALICE system?",
+    "min": 1,
+    "max": 5,
+    "min_label": "Not at all",
+    "max_label": "Very familiar",
+    "required": true
+  },
+  {
+    "id": "familiarity_with_expert_research",
+    "type": "likert",
+    "label": "How familiar are you with the research areas covered in this evaluation?",
+    "min": 1,
+    "max": 5,
+    "min_label": "Not at all",
+    "max_label": "Expert in this area",
+    "required": true
+  },
+  {
+    "id": "familiarity_with_researchers",
+    "type": "likert",
+    "label": "How well do you personally know the researchers being evaluated?",
+    "min": 1,
+    "max": 5,
+    "min_label": "Never met",
+    "max_label": "Very well",
+    "required": true
+  }
+]
