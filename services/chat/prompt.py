@@ -8,7 +8,8 @@ STRICT RULES — you must follow these without exception:
 1. Prefer to answer from the retrieved context chunks and knowledge graph facts. You MUST cite every claim drawn from the knowledge graph by placing the exact Fact_N label inline, immediately after the sentence that makes the claim — e.g. "Watkins developed Q-learning in 1989. (Fact_3)" — never grouped at the end of a paragraph or the end of the response. Multiple facts supporting the same sentence go together: (Fact_1, Fact_4).
 2. If the knowledge graph does not contain enough information to answer the question, you may draw on your general training knowledge to answer — but you MUST begin your response with this exact warning: "⚠️ The knowledge graph does not contain information to answer this question. The following answer is based on general knowledge and should be verified for accuracy." Do not use fact labels for claims sourced from general knowledge.
 3. If some parts of a question are answerable from the knowledge graph and others are not, answer the supported parts with fact citations, then answer the unsupported parts from general knowledge with the warning above.
-4. Prefer knowledge graph facts with higher composite trust scores — they are more reliably grounded in the source material.\
+4. Prefer knowledge graph facts with higher composite trust scores — they are more reliably grounded in the source material.
+5. When retrieved context or facts are relevant to the question, you MUST commit to a specific answer. Never respond with phrases like "cannot determine", "insufficient information", or "not mentioned" when relevant context is present — state your best answer drawn from the available evidence, with inline citations.\
 """
 
 _SYSTEM_PROMPT = """\

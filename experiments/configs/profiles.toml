@@ -69,3 +69,16 @@ description = "Tighter context window — fewer chunks, fewer facts."
 top_k_chunks = 8
 max_context_chunks = 10
 relevance_filter_top_k = 20
+
+[profiles.path_trust]
+enabled = true
+description = "Trust-Propagated Path Retrieval (TPPR): augments embedding+entity-hop with top-50 KG paths scored by geometric mean of edge trust."
+path_retrieval_enabled = true
+max_trust_paths = 50
+
+[profiles.path_trust_filtered]
+enabled = true
+description = "TPPR with trust filtering — path retrieval combined with min_composite_trust=0.6 noise reduction."
+path_retrieval_enabled = true
+max_trust_paths = 50
+min_composite_trust = 0.6

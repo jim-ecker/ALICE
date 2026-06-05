@@ -38,6 +38,8 @@ _PROFILE_KNOWN_KEYS = {
     # Retrieval
     "top_k_chunks", "max_context_chunks", "entity_hop_depth", "max_hop2_entities",
     "max_tokens", "min_composite_trust",
+    # Trust-Propagated Path Retrieval
+    "path_retrieval_enabled", "max_trust_paths",
     # Scoring
     "ingest_certainty_weight", "relevance_weight", "provenance_weight",
     "grounding_weight", "relevance_filter_top_k",
@@ -134,6 +136,8 @@ def open_session(
         top_k=int(opts.get("top_k_chunks", 15)),
         hop_depth=int(opts.get("entity_hop_depth", 2)),
         max_hop2_entities=int(opts.get("max_hop2_entities", 20)),
+        path_retrieval=bool(opts.get("path_retrieval_enabled", False)),
+        max_trust_paths=int(opts.get("max_trust_paths", 50)),
     )
 
     return EvalSession(

@@ -28,7 +28,7 @@ loader = "hf"
 hf_name = "hotpot_qa"
 hf_subset = "fullwiki"
 split = "validation"
-id_field = "_id"
+id_field = "id"
 question_field = "question"
 answers_field = "answer"
 
@@ -51,3 +51,13 @@ split = "test"
 id_field = "id"
 question_field = "question"
 answers_field = "possible_answers"
+
+[[datasets]]
+name = "musique_validation"
+enabled = false
+loader = "hf"
+hf_name = "dgslibisey/MuSiQue"
+split = "validation"
+id_field = "id"
+question_field = "question"
+answers_field = "answer"

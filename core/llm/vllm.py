@@ -1,3 +1,5 @@
+import time
+
 from .base import LLMBackend
 
 
@@ -8,9 +10,17 @@ class VLLMBackend(LLMBackend):
         self._model = model_name
 
     def chat(self, messages: list[dict[str, str]], max_tokens: int = 1024) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
-        return response.choices[0].message.content
+        from openai import RateLimitError
+        for attempt in range(8):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                )
+                return response.choices[0].message.content
+            except RateLimitError as e:
+                if "insufficient_quota" in str(e) or attempt == 7:
+                    raise
+                wait = 2 ** attempt
+                time.sleep(wait)
