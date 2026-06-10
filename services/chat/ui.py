@@ -438,12 +438,11 @@ async function switchExpert(slug) {
     activeExpertSlug = slug;
     activeConvId = null;
     // Show expert intro in the chat area
-    if (d.intro) {
-      const container = $('messages');
-      container.innerHTML = '';
-      container.appendChild(buildMsgEl('assistant', d.intro, []));
-      scrollToBottom();
-    }
+    const intro = (d.intro || `I am an AI avatar for ${d.name || 'this expert'} in ALICE, not the real person. Ask me a question and I will use this expert knowledge base to help.`).trim();
+    const container = $('messages');
+    container.innerHTML = '';
+    container.appendChild(buildMsgEl('assistant', intro, []));
+    scrollToBottom();
   } catch (e) {
     alert('Switch failed: ' + e);
   } finally {
@@ -468,30 +467,47 @@ async function unloadExpert() {
 
 // ── Conversations ────────────────────────────────────────────────────────────
 async function loadConversations() {
-  const r = await fetch(`${API}/api/conversations`);
-  const d = await r.json();
   const list = $('conv-list');
+  const r = await fetch(`${API}/api/conversations`);
+  if (!r.ok) {
+    list.innerHTML = `<div style="font-size:11px;color:var(--red);padding:8px">Error loading conversations</div>`;
+    return;
+  }
+  const d = await r.json();
   list.innerHTML = '';
   for (const conv of d.conversations) {
     const el = document.createElement('div');
     el.className = 'conv-item' + (conv.id === activeConvId ? ' active' : '');
     el.dataset.id = conv.id;
-    el.innerHTML = `<span class="conv-title">${esc(conv.title)}</span>
+    const title = (conv.title || '').trim() || 'Untitled Conversation';
+    el.innerHTML = `<span class="conv-title">${esc(title)}</span>
       <button class="del-btn" title="Delete">✕</button>`;
-    el.querySelector('.conv-title').addEventListener('click', () => openConversation(conv.id));
+    el.addEventListener('click', e => {
+      if (!e.target.closest('.del-btn')) openConversation(conv.id);
+    });
     el.querySelector('.del-btn').addEventListener('click', e => { e.stopPropagation(); deleteConversation(conv.id); });
     list.appendChild(el);
   }
 }
 
 async function openConversation(id) {
+  const previousConvId = activeConvId;
   activeConvId = id;
   $('send-btn').disabled = false;
   await loadConversations();
-  const r = await fetch(`${API}/api/conversations/${id}/messages`);
-  const d = await r.json();
-  renderMessages(d.messages);
-  scrollToBottom();
+  try {
+    const r = await fetch(`${API}/api/conversations/${id}/messages`);
+    if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    const d = await r.json();
+    renderMessages(d.messages || []);
+    scrollToBottom();
+  } catch (e) {
+    activeConvId = previousConvId;
+    await loadConversations();
+    const container = $('messages');
+    container.innerHTML = `<div class="msg assistant"><div class="msg-avatar"><img src="/static/alice.png" alt="ALICE"></div>
+      <div class="msg-bubble" style="color:var(--red)">Error loading conversation: ${esc(String(e))}</div></div>`;
+  }
 }
 
 async function deleteConversation(id) {
