@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 
@@ -43,23 +42,6 @@ class RetrievalResult:
     triples: list[RetrievedTriple]
 
 
-@dataclass
-class EvidencePath:
-    """A 1- or 2-hop KG path scored by geometric mean of edge trust.
-
-    Each edge in `edges` is (relation, target_entity, certainty_score, chunk_id).
-    `path_trust` = geometric mean of the certainty scores — a measure of how
-    well every step in the chain is grounded in source text evidence.
-    """
-    anchor: str
-    edges: list[tuple[str, str, float, str]]  # (relation, target, certainty, chunk_id)
-    path_trust: float
-
-    @property
-    def chunk_ids(self) -> list[str]:
-        return [chunk_id for _, _, _, chunk_id in self.edges]
-
-
 def _normalize_entity_name(name: str) -> str:
     """Collapse OCR artifact spaces: 'A ssemblers' → 'Assemblers'."""
     return re.sub(r'\b([A-Za-z]) ([a-z])', r'\1\2', name)
@@ -77,64 +59,6 @@ def _strip_middle_initials(name: str) -> str:
     if len(filtered) >= 2 and len(filtered) < len(tokens):
         return " ".join(filtered)
     return name
-
-
-def _match_anchor_entities(
-    conn: kuzu.Connection,
-    query_text: str,
-    min_name_len: int = 10,
-) -> list[str]:
-    """Return entity names from the KG that appear in the query text.
-
-    Uses the same four-pass fuzzy matching strategy as find_entity_chunks():
-    exact-word → long-name substring → word-level fallback → prefix fallback.
-    """
-    query_lower = query_text.lower()
-    query_words = set(query_lower.split())
-
-    entity_result = conn.execute("MATCH (e:Entity) RETURN e.name")
-    all_long_names: list[str] = []
-    all_names: list[str] = []
-    while entity_result.has_next():
-        row = entity_result.get_next()
-        name: str = row[0] or ""
-        all_names.append(name)
-        if len(name) >= min_name_len:
-            all_long_names.append(name)
-
-    seen: set[str] = set()
-    matched_names: list[str] = []
-    for n in all_names:
-        if n.lower() in query_words:
-            matched_names.append(n)
-            seen.add(n)
-
-    for n in all_long_names:
-        if n not in seen and (
-            n.lower() in query_lower
-            or _strip_middle_initials(n).lower() in query_lower
-        ):
-            matched_names.append(n)
-            seen.add(n)
-
-    if not matched_names:
-        matched_names = [
-            n for n in all_long_names
-            if any(w in query_words for w in n.lower().split() if len(w) >= 4)
-        ]
-
-    if not matched_names:
-        matched_names = [
-            n for n in all_long_names
-            if n not in seen and any(
-                re.sub(r"[^\w]", "", tok).startswith(qw)
-                for tok in n.lower().split()
-                for qw in query_words
-                if len(qw) >= 5 and len(tok) > len(qw)
-            )
-        ]
-
-    return matched_names
 
 
 def find_entity_chunks(
@@ -156,7 +80,68 @@ def find_entity_chunks(
     "langley", without lowering min_name_len (which would re-admit single-word
     noise entities like 'Robot', 'Research', 'Center').
     """
-    matched_names = _match_anchor_entities(conn, query_text, min_name_len)
+    query_lower = query_text.lower()
+    query_words = set(re.sub(r'[^\w\s]', '', query_lower).split())
+
+    # Collect entity names that appear in the query
+    entity_result = conn.execute("MATCH (e:Entity) RETURN e.name")
+    all_long_names: list[str] = []
+    all_names: list[str] = []
+    while entity_result.has_next():
+        row = entity_result.get_next()
+        name: str = row[0] or ""
+        all_names.append(name)
+        if len(name) >= min_name_len:
+            all_long_names.append(name)
+
+    # Exact-word pass: entity name exactly matches a query word — for short names
+    # (acronyms like "UCARE") that would otherwise be excluded by min_name_len.
+    # Require ≥ 3 chars to avoid matching common English stop-words ("I", "is", "a").
+    _MIN_EXACT_WORD_LEN = 3
+    seen: set[str] = set()
+    matched_names = []
+    for n in all_names:
+        if len(n) >= _MIN_EXACT_WORD_LEN and n.lower() in query_words:
+            matched_names.append(n)
+            seen.add(n)
+
+    # Primary pass: full entity name (long only) is a substring of the query.
+    # Also try with middle initials stripped so "James E. Ecker" matches "james ecker".
+    for n in all_long_names:
+        if n not in seen and (
+            n.lower() in query_lower
+            or _strip_middle_initials(n).lower() in query_lower
+        ):
+            matched_names.append(n)
+            seen.add(n)
+
+    # Fallback: if no substring matches, try word-level — any significant word
+    # (≥4 chars) of the entity name appears as an exact word in the query.
+    # This lets short queries like "where is Langley located" match multi-word
+    # entities like "NASA Langley Research Center" via the word "langley", without
+    # polluting queries that already have substring matches (e.g. queries that
+    # explicitly name "Langley Research Center" would trigger "research" and
+    # "center" as word matches, inflating the candidate set).
+    if not matched_names:
+        matched_names = [
+            n for n in all_long_names
+            if any(w in query_words for w in n.lower().split() if len(w) >= 4)
+        ]
+
+    # Second fallback: query word is a prefix of an entity-name token.
+    # Handles cases where the LLM fused an acronym+suffix into one token
+    # (e.g. "UCAREPROJECT") so "ucare" (5+ chars) still finds it.
+    # Punctuation is stripped from tokens so "(ucare)" also matches "ucare".
+    if not matched_names:
+        matched_names = [
+            n for n in all_long_names
+            if n not in seen and any(
+                re.sub(r"[^\w]", "", tok).startswith(qw)
+                for tok in n.lower().split()
+                for qw in query_words
+                if len(qw) >= 5 and len(tok) > len(qw)
+            )
+        ]
 
     if not matched_names:
         return []
@@ -222,86 +207,6 @@ def find_entity_chunks(
     return list(chunk_ids)
 
 
-def find_trust_paths(
-    conn: kuzu.Connection,
-    anchor_entities: list[str],
-    max_paths: int = 50,
-) -> list[EvidencePath]:
-    """Find 1- and 2-hop KG paths from anchor entities, scored by geometric mean of edge trust.
-
-    Enumerates outgoing and incoming 1-hop paths and outgoing 2-hop paths from
-    each anchor entity. Scores each path by the geometric mean of its RELATES_TO
-    edge certainty_scores, then returns the top-max_paths paths sorted by
-    path_trust descending.
-
-    This is Trust-Propagated Path Retrieval (TPPR): a chain is ranked by the
-    weakest evidentiary link in the chain, not by graph centrality or semantic
-    proximity. Only high-trust chains — where every step is well-grounded in
-    source text — rank near the top.
-    """
-    if not anchor_entities:
-        return []
-
-    anchors = anchor_entities[:5]
-    paths: list[EvidencePath] = []
-
-    # 1-hop outgoing: anchor → target
-    res = conn.execute(
-        "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) WHERE s.name IN $anchors "
-        "RETURN s.name, r.relation, r.certainty_score, r.chunk_id, e.name",
-        parameters={"anchors": anchors},
-    )
-    while res.has_next():
-        row = res.get_next()
-        anchor, rel, cert, cid, target = row[0], row[1], float(row[2] or 0.0), row[3], row[4]
-        if cid:
-            paths.append(EvidencePath(
-                anchor=anchor,
-                edges=[(rel, target, cert, cid)],
-                path_trust=cert,
-            ))
-
-    # 1-hop incoming: source → anchor (answer entity leads to anchor)
-    res = conn.execute(
-        "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) WHERE e.name IN $anchors "
-        "RETURN s.name, r.relation, r.certainty_score, r.chunk_id, e.name",
-        parameters={"anchors": anchors},
-    )
-    while res.has_next():
-        row = res.get_next()
-        src, rel, cert, cid, anchor = row[0], row[1], float(row[2] or 0.0), row[3], row[4]
-        if cid:
-            paths.append(EvidencePath(
-                anchor=anchor,
-                edges=[(rel, src, cert, cid)],
-                path_trust=cert,
-            ))
-
-    # 2-hop outgoing: anchor → intermediate → target
-    res = conn.execute(
-        "MATCH (s:Entity)-[r1:RELATES_TO]->(m:Entity)-[r2:RELATES_TO]->(e:Entity) "
-        "WHERE s.name IN $anchors AND s.name <> e.name "
-        "RETURN s.name, r1.relation, r1.certainty_score, r1.chunk_id, "
-        "m.name, r2.relation, r2.certainty_score, r2.chunk_id, e.name",
-        parameters={"anchors": anchors},
-    )
-    while res.has_next():
-        row = res.get_next()
-        anchor = row[0]
-        rel1, cert1, cid1 = row[1], float(row[2] or 0.0), row[3]
-        mid = row[4]
-        rel2, cert2, cid2 = row[5], float(row[6] or 0.0), row[7]
-        if cid1 and cid2:
-            paths.append(EvidencePath(
-                anchor=anchor,
-                edges=[(rel1, mid, cert1, cid1), (rel2, row[8], cert2, cid2)],
-                path_trust=math.sqrt(cert1 * cert2),
-            ))
-
-    paths.sort(key=lambda p: p.path_trust, reverse=True)
-    return paths[:max_paths]
-
-
 def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalResult:
     """Fetch CitationChunk and RetrievedTriple records for the given chunk IDs."""
     if not chunk_ids:
@@ -345,12 +250,17 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
     triples: list[RetrievedTriple] = []
     while triple_result.has_next():
         row = triple_result.get_next()
+        subj = _normalize_entity_name(row[0])
+        obj = _normalize_entity_name(row[3])
+        # Skip tautological triples (subject == object) — these are extraction artifacts
+        if subj.lower() == obj.lower():
+            continue
         triples.append(
             RetrievedTriple(
-                subject=_normalize_entity_name(row[0]),
+                subject=subj,
                 subject_type=row[1],
                 relation=row[2],
-                object_=_normalize_entity_name(row[3]),
+                object_=obj,
                 object_type=row[4],
                 certainty_score=float(row[5]),
                 chunk_id=row[6],

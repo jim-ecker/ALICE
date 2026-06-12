@@ -157,6 +157,19 @@ class WeightedCompositeScorer(TripleScorer):
                 )
             )
 
+        # ── Entity-match boost (applied before top-k so query-specific facts survive the cut) ──
+        # Triples whose subject or object (≥4 chars) appears verbatim in the query get a
+        # flat bonus that overrides the provenance bias against single-document facts.
+        _ENTITY_BOOST = 0.20
+        query_lower = query.lower()
+        for bundle in bundles:
+            t = bundle.triple
+            if (
+                (len(t.subject) >= 4 and t.subject.lower() in query_lower)
+                or (len(t.object_) >= 4 and t.object_.lower() in query_lower)
+            ):
+                bundle.composite_trust = min(1.0, bundle.composite_trust + _ENTITY_BOOST)
+
         # ── Optional top-k filter ─────────────────────────────────────────────
         if cfg.relevance_filter_top_k is not None:
             bundles.sort(key=lambda b: b.composite_trust, reverse=True)

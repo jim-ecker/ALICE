@@ -117,6 +117,56 @@ class SwitchExpertRequest(BaseModel):
     slug: str
 
 
+# ── Text sanitization helpers ────────────────────────────────────────────────
+
+def _clean_model_text(text: str) -> str:
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text, flags=re.IGNORECASE).strip()
+    text = re.sub(r'^```[a-z]*\n?([\s\S]*?)\n?```$', r'\1', text.strip())
+    return text.strip()
+
+
+_REASONING_PREFIXES = re.compile(
+    r'^(we need to|i need to|let me|okay|so |the user|the instruction|we are|i should|i will|first|alright)',
+    re.IGNORECASE,
+)
+
+def _sanitize_title(raw_title: str, fallback: str) -> str:
+    text = _clean_model_text(raw_title)
+    for line in text.splitlines():
+        line = line.strip()
+        if line:
+            text = line
+            break
+    else:
+        return fallback
+    # Reject lines that look like reasoning internal monologue
+    if _REASONING_PREFIXES.match(text) or len(text.split()) > 15:
+        return fallback
+    text = re.sub(r'^(title|conversation title)\s*:\s*', '', text, flags=re.IGNORECASE)
+    text = text.strip('"\'`')
+    text = re.sub(r'\s+', ' ', text).strip()
+    if not text:
+        return fallback
+    return text[:77] + '…' if len(text) > 80 else text
+
+
+def _fallback_title_from_query(query: str) -> str:
+    q = query.strip()
+    if len(q) <= 60:
+        return q
+    cut = q.rfind(' ', 0, 60)
+    return (q[:cut] if cut > 20 else q[:60]) + '…'
+
+
+def _fallback_expert_intro(name: str, areas: list[str]) -> str:
+    areas_str = ', '.join(areas) if areas else 'my research'
+    return (
+        f"I am an AI avatar for {name} in ALICE, not the real person. "
+        f"My knowledge is based on {name}'s published work in {areas_str}. "
+        f"How can I help you today?"
+    )
+
+
 # ── Identity ─────────────────────────────────────────────────────────────────
 
 def get_current_user(request: Request) -> str:
@@ -127,49 +177,6 @@ def get_current_user(request: Request) -> str:
     prevent duplicate history buckets if the IdP varies email case between sessions.
     """
     return request.headers.get("X-Remote-User", "").strip().lower()
-
-
-def _clean_model_text(text: str | None) -> str:
-    """Remove wrapper markup some local models emit around short utility responses."""
-    if not text:
-        return ""
-    cleaned = text.strip()
-    cleaned = re.sub(r"(?is)<think>.*?</think>", "", cleaned).strip()
-    cleaned = re.sub(r"(?is)^```(?:\w+)?\s*|\s*```$", "", cleaned).strip()
-    return cleaned
-
-
-def _sanitize_title(raw_title: str | None, fallback: str) -> str:
-    title = _clean_model_text(raw_title)
-    # Keep only the first non-empty line. Some models append explanations despite
-    # the "title only" instruction, and those can make the sidebar unusable.
-    lines = [line.strip() for line in title.splitlines() if line.strip()]
-    title = lines[0] if lines else ""
-    title = re.sub(r"^(title|conversation title)\s*:\s*", "", title, flags=re.I).strip()
-    title = title.strip("\"'`“”‘’").strip()
-    title = re.sub(r"\s+", " ", title)
-    if not title:
-        title = fallback
-    if len(title) > 80:
-        title = title[:77].rstrip() + "..."
-    return title or "New Conversation"
-
-
-def _fallback_title_from_query(query: str) -> str:
-    query = re.sub(r"\s+", " ", query).strip()
-    if not query:
-        return "New Conversation"
-    if len(query) <= 60:
-        return query
-    return query[:57].rstrip() + "..."
-
-
-def _fallback_expert_intro(name: str | None, areas: str) -> str:
-    display = name or "this expert"
-    return (
-        f"Hello, I am {display}'s AI avatar in ALICE, not the real {display}. "
-        f"I can help you explore knowledge related to {areas} and point back to the retrieved source material as we work."
-    )
 
 
 # ── App factory ──────────────────────────────────────────────────────────────
@@ -275,6 +282,10 @@ def create_app(state, chat, cfg) -> FastAPI:
         # 4. Generate answer
         answer: str = await asyncio.to_thread(state.llm.chat, messages, cfg.max_tokens)
 
+        # Strip any LLM-generated general-knowledge warning — the app adds its own below
+        _WARNING_PREFIX = "⚠️ The knowledge graph does not contain information to answer this question. The following answer is based on general knowledge and should be verified for accuracy."
+        answer = answer.removeprefix(_WARNING_PREFIX).lstrip()
+
         # 4a. Collect only the chunks the LLM actually cited, in citation order
         cited_fact_indices = list(
             dict.fromkeys(int(m) for m in re.findall(r'Fact_(\d+)', answer))
@@ -334,13 +345,21 @@ def create_app(state, chat, cfg) -> FastAPI:
                 )
             )
 
-        # 7. Save assistant message with serialized citations
+        # 7. Prepend grounding warning when no KG facts were cited despite context being available
+        if not citations and (retrieval.chunks or retrieval.trust_bundles):
+            answer = (
+                "⚠️ The knowledge graph does not contain information to answer this question. "
+                "The following answer is based on general knowledge and should be verified for accuracy.\n\n"
+                + answer
+            )
+
+        # 8. Save assistant message with serialized citations
         citations_json = json.dumps([c.model_dump() for c in citations])
         asst_msg = state.chat_store.add_message(
             conv_id, "assistant", answer, citation_chunk_ids, citations_json
         )
 
-        # 8. Generate and persist a short conversation title
+        # 9. Generate and persist a short conversation title
         _title_messages = [
             {
                 "role": "system",
@@ -354,12 +373,11 @@ def create_app(state, chat, cfg) -> FastAPI:
                 "content": f"User asked: {req.content}\n\nAssistant answered: {answer[:400]}",
             },
         ]
-        fallback_title = _fallback_title_from_query(req.content)
         try:
-            raw_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 20)
+            raw_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 512)
+            new_title = _sanitize_title(raw_title, _fallback_title_from_query(req.content))
         except Exception:
-            raw_title = ""
-        new_title = _sanitize_title(raw_title, fallback_title)
+            new_title = _fallback_title_from_query(req.content)
         state.chat_store.update_conversation_title(conv_id, new_title, owner=owner)
 
         return SendMessageResponse(
@@ -372,7 +390,7 @@ def create_app(state, chat, cfg) -> FastAPI:
     # ── Expert endpoints ─────────────────────────────────────────────────────
 
     @app.get("/api/experts", response_model=ListExpertsResponse)
-    async def list_experts():
+    async def list_experts(owner: str = Depends(get_current_user)):
         from services.experts.manager import ExpertRegistry
         from services.experts.paths import build_expert_paths
 
@@ -388,6 +406,7 @@ def create_app(state, chat, cfg) -> FastAPI:
                 db_exists=build_expert_paths(experts_dir, m.slug).db_path.exists(),
             )
             for m in metas
+            if not m.allowed_users or owner in m.allowed_users
         ]
         return ListExpertsResponse(experts=items)
 
@@ -399,7 +418,13 @@ def create_app(state, chat, cfg) -> FastAPI:
         )
 
     @app.post("/api/experts/switch", status_code=200)
-    async def switch_expert(req: SwitchExpertRequest):
+    async def switch_expert(req: SwitchExpertRequest, owner: str = Depends(get_current_user)):
+        from services.experts.manager import ExpertRegistry
+        meta = ExpertRegistry(cfg.experts_dir).get(req.slug)
+        if meta is None:
+            raise HTTPException(status_code=404, detail="Expert not found")
+        if meta.allowed_users and owner not in meta.allowed_users:
+            raise HTTPException(status_code=403, detail="Access to this expert is restricted")
         try:
             await asyncio.to_thread(chat.switch_expert, req.slug)
         except FileNotFoundError as e:
@@ -425,14 +450,16 @@ def create_app(state, chat, cfg) -> FastAPI:
             },
             {"role": "user", "content": "Introduce yourself."},
         ]
+        areas_list = meta.expertise_areas if meta and meta.expertise_areas else []
         try:
-            intro = _clean_model_text(await asyncio.to_thread(state.llm.chat, intro_messages, 200))
+            raw_intro: str = await asyncio.to_thread(state.llm.chat, intro_messages, 1024)
+            intro = _clean_model_text(raw_intro)
         except Exception:
             intro = ""
         if not intro:
-            intro = _fallback_expert_intro(state.expert_name, areas_str)
-        if "AI" not in intro and "avatar" not in intro.lower():
-            intro = f"{intro}\n\nNote: I am an AI avatar in ALICE, not the real {state.expert_name}."
+            intro = _fallback_expert_intro(state.expert_name, areas_list)
+        elif not re.search(r'\b(ai|avatar|artificial|not the real)\b', intro, re.IGNORECASE):
+            intro += f"\n\nPlease note: I am an AI avatar for {state.expert_name} in ALICE, not the real person."
 
         return {"slug": state.active_expert, "name": state.expert_name, "intro": intro}
 
@@ -448,8 +475,9 @@ def create_app(state, chat, cfg) -> FastAPI:
         from fastapi.responses import JSONResponse
         if not id.isdigit():
             raise HTTPException(status_code=400, detail="Invalid NTRS ID")
+        _headers = {"User-Agent": "Mozilla/5.0 (compatible; ALICE-bot/1.0)"}
         def _fetch():
-            r = _req.get(f"https://ntrs.nasa.gov/api/citations/{id}", timeout=15)
+            r = _req.get(f"https://ntrs.nasa.gov/api/citations/{id}", timeout=15, headers=_headers)
             r.raise_for_status()
             return r.json()
         data = await asyncio.to_thread(_fetch)
@@ -465,8 +493,9 @@ def create_app(state, chat, cfg) -> FastAPI:
         from fastapi.responses import Response as _Response
         if not (url.startswith("https://ntrs.nasa.gov/api/citations/") and ".pdf" in url):
             raise HTTPException(status_code=400, detail="Only NTRS PDF URLs are supported")
+        _headers = {"User-Agent": "Mozilla/5.0 (compatible; ALICE-bot/1.0)"}
         def _fetch():
-            r = _req.get(url, timeout=60)
+            r = _req.get(url, timeout=60, headers=_headers)
             r.raise_for_status()
             return r.content
         content = await asyncio.to_thread(_fetch)

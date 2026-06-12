@@ -179,15 +179,22 @@ class Chat:
 
     def switch_to_chat(self) -> None:
         """Hot-swap back to the standard chat.db without restarting the server."""
-        self.close()
         db_path = self._chat_cfg.db_path
         emb_path = self._resolve_embeddings_path(db_path)
+        # Build new state BEFORE closing the current database so that concurrent
+        # requests keep using a valid state during the index-load phase.
+        old_db = self._db
         new_state = self._build_state(db_path, emb_path)
         self._update_state_from(new_state)
         self._state.active_expert = None
         self._state.expert_name = None
         self._state.expert_persona = None
         self._state.expert_persona_strength = 1.0
+        if old_db is not None:
+            try:
+                old_db.close()
+            except Exception:
+                pass
 
     def switch_expert(self, slug: str) -> None:
         """Hot-swap to a virtual expert's database without restarting the server.
@@ -208,13 +215,18 @@ class Chat:
             raise FileNotFoundError(f"Expert database not found: {db_path}")
         emb_path = paths.embeddings_path
 
-        self.close()
+        old_db = self._db
         new_state = self._build_state(db_path, emb_path)
         self._update_state_from(new_state)
         self._state.active_expert = slug
         self._state.expert_name = meta.name
         self._state.expert_persona = meta.personality or None
         self._state.expert_persona_strength = meta.personality_strength
+        if old_db is not None:
+            try:
+                old_db.close()
+            except Exception:
+                pass
 
     def _ensure_llm_and_embed(self) -> None:
         db_path = self._chat_cfg.db_path

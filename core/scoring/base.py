@@ -58,10 +58,19 @@ class ScoredRetrievalResult:
             if cid not in chunk_scores:
                 chunk_scores[cid] = b.composite_trust
 
+        # Rank chunks: embedding hits first (in cosine-similarity order), then
+        # entity-augmented chunks ranked by triple composite score. This ensures
+        # semantically relevant chunks always appear before entity-linked chunks,
+        # and entity-linked chunks (e.g. queried entity definition pages) are not
+        # displaced by high-provenance generic chunks from other documents.
+        emb_rank: dict[str, int] = {cid: i for i, cid in enumerate(self.embedding_chunk_ids)}
+        INF = len(self.embedding_chunk_ids) + 1
         sorted_chunks = sorted(
             self.chunks,
-            key=lambda c: chunk_scores.get(c.chunk_id, 0.0),
-            reverse=True,
+            key=lambda c: (
+                emb_rank.get(c.chunk_id, INF),      # embedding hits first (rank asc)
+                -chunk_scores.get(c.chunk_id, 0.0), # then by triple composite desc
+            ),
         )
         return ScoredRetrievalResult(chunks=sorted_chunks, trust_bundles=deduped, embedding_chunk_ids=self.embedding_chunk_ids)
 

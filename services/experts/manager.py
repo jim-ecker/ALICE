@@ -21,10 +21,13 @@ class ExpertMeta:
     created_at: str
     expertise_areas: list[str] = None  # type: ignore[assignment]
     personality_strength: float = 1.0
+    allowed_users: list[str] = None  # type: ignore[assignment]
 
     def __post_init__(self):
         if self.expertise_areas is None:
             self.expertise_areas = []
+        if self.allowed_users is None:
+            self.allowed_users = []
 
     def to_dict(self) -> dict:
         return {
@@ -37,6 +40,7 @@ class ExpertMeta:
             "max_docs": self.max_docs,
             "created_at": self.created_at,
             "expertise_areas": self.expertise_areas,
+            "allowed_users": self.allowed_users,
         }
 
     @classmethod
@@ -51,6 +55,7 @@ class ExpertMeta:
             max_docs=data.get("max_docs", 30),
             created_at=data.get("created_at", ""),
             expertise_areas=data.get("expertise_areas", []),
+            allowed_users=data.get("allowed_users", []),
         )
 
 
@@ -76,7 +81,7 @@ class ExpertRegistry:
         with open(meta_file) as f:
             return ExpertMeta.from_dict(json.load(f))
 
-    def create(self, name: str, max_docs: int = 30, personality: str = "") -> ExpertMeta:
+    def create(self, name: str, max_docs: int = 30, personality: str = "", allowed_users: list[str] | None = None) -> ExpertMeta:
         slug = self.slug_for(name)
         meta = ExpertMeta(
             name=name,
@@ -86,6 +91,7 @@ class ExpertRegistry:
             queries_ingested=[],
             max_docs=max_docs,
             created_at=datetime.now(timezone.utc).isoformat(),
+            allowed_users=allowed_users or [],
         )
         self._write(meta)
         return meta

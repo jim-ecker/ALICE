@@ -89,21 +89,59 @@ def _create_expert(registry, experts_dir, embed_cfg, llm_cfg) -> None:
     if not name:
         return
 
-    max_docs_str = questionary.text("Max docs to ingest:", default="30").ask()
-    try:
-        max_docs = int(max_docs_str)
-    except (ValueError, TypeError):
-        max_docs = 30
-
     personality = questionary.text("Personality description (optional, Enter to skip):").ask() or ""
 
-    confirmed = questionary.confirm(f"Create expert '{name}' and run ingest now?").ask()
-    if not confirmed:
+    allowed_raw = questionary.text(
+        "Allowed users (comma-separated NASA emails, Enter to make public):"
+    ).ask() or ""
+    allowed_users = [e.strip().lower() for e in allowed_raw.split(",") if e.strip()]
+
+    kg_source = questionary.select(
+        "Knowledge graph source:",
+        choices=["NTRS (search by author name)", "Local folder (upload documents)", "None (persona only)"],
+    ).ask()
+    if kg_source is None:
         return
 
-    meta = registry.create(name, max_docs=max_docs, personality=personality)
-    rprint(f"[green]Created expert:[/green] {meta.name} (slug: {meta.slug})")
-    _run_ingest_for_expert(meta, meta.name, registry, experts_dir, embed_cfg, llm_cfg)
+    if kg_source == "NTRS (search by author name)":
+        max_docs_str = questionary.text("Max docs to ingest:", default="30").ask()
+        try:
+            max_docs = int(max_docs_str)
+        except (ValueError, TypeError):
+            max_docs = 30
+
+        confirmed = questionary.confirm(f"Create expert '{name}' and run NTRS ingest now?").ask()
+        if not confirmed:
+            return
+
+        meta = registry.create(name, max_docs=max_docs, personality=personality, allowed_users=allowed_users)
+        rprint(f"[green]Created expert:[/green] {meta.name} (slug: {meta.slug})")
+        _run_ingest_for_expert(meta, meta.name, registry, experts_dir, embed_cfg, llm_cfg)
+
+    elif kg_source == "Local folder (upload documents)":
+        folder_raw = questionary.text("Path to folder containing documents:").ask()
+        if not folder_raw:
+            return
+        folder = Path(folder_raw).expanduser().resolve()
+        if not folder.is_dir():
+            rprint(f"[red]Not a directory: {folder}[/red]")
+            return
+
+        confirmed = questionary.confirm(f"Create expert '{name}' and ingest from {folder}?").ask()
+        if not confirmed:
+            return
+
+        meta = registry.create(name, max_docs=999, personality=personality, allowed_users=allowed_users)
+        rprint(f"[green]Created expert:[/green] {meta.name} (slug: {meta.slug})")
+        _run_ingest_folder_for_expert(meta, folder, registry, experts_dir, embed_cfg, llm_cfg)
+
+    else:  # None
+        confirmed = questionary.confirm(f"Create persona-only expert '{name}' (no knowledge graph)?").ask()
+        if not confirmed:
+            return
+        meta = registry.create(name, max_docs=0, personality=personality, allowed_users=allowed_users)
+        rprint(f"[green]Created expert:[/green] {meta.name} (slug: {meta.slug})")
+        rprint("[dim]No knowledge graph created. Expert will answer using general knowledge only.[/dim]")
 
 
 def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, llm_cfg) -> None:
@@ -234,6 +272,138 @@ def _run_ingest_for_expert(meta, query_name, registry, experts_dir, embed_cfg, l
         rprint(f"[red]No documents found for '{query_name}'.[/red]")
 
 
+def _run_ingest_folder_for_expert(meta, folder: "Path", registry, experts_dir, embed_cfg, llm_cfg) -> None:
+    import questionary
+    from pathlib import Path
+    from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
+    from rich.panel import Panel as _Panel
+
+    from core.embeddings.client import EmbeddingsClient
+    from services.experts.ingest import ingest_folder_for_expert
+    from services.ingest.metadata import extract_pdf_metadata, infer_missing_metadata
+
+    folder = Path(folder)
+    _EXCEL_EXTS = {".xlsx", ".xls"}
+    _ALL_EXTS = ("pdf", "pptx", "docx", "html", "htm", "md", "adoc", "xlsx", "xls")
+    all_files = sorted(p for ext in _ALL_EXTS for p in folder.glob(f"*.{ext}"))
+    if not all_files:
+        rprint(f"[red]No supported files found in {folder}[/red]")
+        return
+
+    rprint(f"[dim]Found {len(all_files)} file(s) in {folder}[/dim]")
+
+    if llm_cfg is None:
+        llm_cfg = _resolve_llm_cfg(Path(experts_dir))
+    embed_client = EmbeddingsClient(embed_cfg)
+
+    rprint("[dim]Extracting metadata...[/dim]")
+    from concurrent.futures import ThreadPoolExecutor, as_completed as _as_completed
+
+    def _load_meta(path):
+        if path.suffix.lower() in _EXCEL_EXTS:
+            from services.ingest.metadata import extract_excel_metadata
+            return path, extract_excel_metadata(path)
+        return path, extract_pdf_metadata(path)
+
+    all_meta = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(all_files))) as executor:
+        for future in _as_completed({executor.submit(_load_meta, p): p for p in all_files}):
+            path, m = future.result()
+            all_meta[path] = m
+
+    needs_inference = [
+        f for f in all_files
+        if f.suffix.lower() not in _EXCEL_EXTS and (not all_meta[f].get("title") or not all_meta[f].get("authors"))
+    ]
+    if needs_inference:
+        rprint(f"[dim]{len(needs_inference)} document(s) with missing metadata — running LLM inference...[/dim]")
+        from core.llm.factory import create_backend
+        llm = create_backend(llm_cfg)
+        for f in needs_inference:
+            all_meta[f] = infer_missing_metadata(all_meta[f], llm)
+
+    confirmed_docs: list = []
+    for path in all_files:
+        m = all_meta[path]
+        rprint(_Panel(f"[bold]{path.name}[/bold]", expand=False))
+        title = questionary.text("Title:", default=m.get("title") or path.stem).ask()
+        if title is None:
+            rprint("[yellow]Skipping.[/yellow]")
+            continue
+        authors = questionary.text("Authors:", default=m.get("authors", "")).ask() or ""
+        year = questionary.text("Year:", default=m.get("year", "")).ask() or ""
+        confirmed_docs.append((path, {"title": title, "authors": authors, "year": year}))
+
+    if not confirmed_docs:
+        rprint("[yellow]No documents to ingest.[/yellow]")
+        return
+
+    tbl = Table(title="Documents to Ingest")
+    tbl.add_column("File")
+    tbl.add_column("Title", ratio=1)
+    tbl.add_column("Authors")
+    tbl.add_column("Year", justify="right")
+    for p, m in confirmed_docs:
+        tbl.add_row(p.name, m.get("title", ""), m.get("authors", ""), m.get("year", ""))
+    rprint(tbl)
+
+    if not questionary.confirm("Proceed with ingestion?", default=True).ask():
+        rprint("[yellow]Aborted.[/yellow]")
+        return
+
+    extract_progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+    )
+    state: dict = {"extract_task": None, "extract_started": False, "chunk_task": None}
+    chunk_progress = Progress(SpinnerColumn(), TextColumn("{task.description}"), BarColumn(), MofNCompleteColumn())
+    chunk_progress.start()
+    state["chunk_task"] = chunk_progress.add_task("Chunking files...", total=len(confirmed_docs))
+
+    def on_chunk(title, chunk_count):
+        chunk_progress.advance(state["chunk_task"])
+
+    def on_extract_start(total_chunks):
+        chunk_progress.stop()
+        extract_progress.start()
+        state["extract_task"] = extract_progress.add_task("Extracting triples...", total=total_chunks)
+        state["extract_started"] = True
+
+    def on_chunk_extracted(done, total, triples):
+        if state["extract_task"] is not None:
+            extract_progress.update(state["extract_task"], completed=done, description=f"Extracting triples... (+{triples})")
+
+    result = ingest_folder_for_expert(
+        meta,
+        folder,
+        experts_dir,
+        llm_cfg,
+        embed_client,
+        confirmed_docs,
+        on_chunk=on_chunk,
+        on_extract_start=on_extract_start,
+        on_chunk_extracted=on_chunk_extracted,
+    )
+
+    chunk_progress.stop()
+    if state["extract_started"]:
+        extract_progress.stop()
+
+    if result.docs_added > 0:
+        rprint(f"[green]Ingested:[/green] {result.docs_added} docs, {result.chunks_added} chunks")
+        from services.experts.paths import build_expert_paths
+        from services.experts.expertise import compute_expertise_areas
+        db_path = build_expert_paths(experts_dir, meta.slug).db_path
+        areas = compute_expertise_areas(db_path)
+        if areas:
+            registry.update(meta.slug, expertise_areas=areas)
+            rprint(f"[dim]Expertise areas:[/dim] {', '.join(areas)}")
+    else:
+        rprint("[yellow]No new documents ingested.[/yellow]")
+
+
 def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
     import questionary
 
@@ -258,10 +428,12 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
             choices=[
                 "View details",
                 "Re-ingest (refresh NTRS publications)",
+                "Add local documents",
                 "Refresh expertise areas",
                 "Add alias (ingest under alternate name)",
                 "Edit personality",
                 "Edit personality strength",
+                "Edit allowed users",
                 "Reset database (delete DB + embeddings)",
                 "Delete expert",
                 "Back",
@@ -275,6 +447,16 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
         elif action == "Re-ingest (refresh NTRS publications)":
             _run_ingest_for_expert(meta, meta.name, registry, experts_dir, embed_cfg, llm_cfg)
             meta = registry.get(meta.slug) or meta
+        elif action == "Add local documents":
+            folder_raw = questionary.text("Path to folder containing documents:").ask()
+            if folder_raw:
+                from pathlib import Path as _Path
+                folder = _Path(folder_raw).expanduser().resolve()
+                if not folder.is_dir():
+                    rprint(f"[red]Not a directory: {folder}[/red]")
+                else:
+                    _run_ingest_folder_for_expert(meta, folder, registry, experts_dir, embed_cfg, llm_cfg)
+                    meta = registry.get(meta.slug) or meta
         elif action == "Refresh expertise areas":
             from services.experts.expertise import compute_expertise_areas
             from services.experts.paths import build_expert_paths
@@ -301,6 +483,21 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
                 registry.update(meta.slug, personality=new_persona)
                 meta = registry.get(meta.slug) or meta
                 rprint("[green]Personality updated.[/green]")
+        elif action == "Edit allowed users":
+            current = ", ".join(meta.allowed_users) if meta.allowed_users else ""
+            rprint("[dim]Leave blank to make this expert accessible to all users.[/dim]")
+            new_raw = questionary.text(
+                "Allowed users (comma-separated NASA emails):",
+                default=current,
+            ).ask()
+            if new_raw is not None:
+                new_users = [e.strip().lower() for e in new_raw.split(",") if e.strip()]
+                registry.update(meta.slug, allowed_users=new_users)
+                meta = registry.get(meta.slug) or meta
+                if new_users:
+                    rprint(f"[green]Access restricted to:[/green] {', '.join(new_users)}")
+                else:
+                    rprint("[green]Expert is now accessible to all users.[/green]")
         elif action == "Edit personality strength":
             current_pct = int(meta.personality_strength * 100)
             rprint(
@@ -361,6 +558,7 @@ def _view_expert(meta, experts_dir) -> None:
     tbl.add_row("Aliases", ", ".join(meta.aliases) or "(none)")
     tbl.add_row("Personality", meta.personality or "(none)")
     tbl.add_row("Personality Strength", f"{int(meta.personality_strength * 100)}%")
+    tbl.add_row("Allowed Users", ", ".join(meta.allowed_users) if meta.allowed_users else "(all users)")
     tbl.add_row("Queries Ingested", ", ".join(meta.queries_ingested) or "(none)")
     tbl.add_row("Max Docs", str(meta.max_docs))
     tbl.add_row("Created At", meta.created_at)

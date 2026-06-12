@@ -4,12 +4,12 @@ from core.scoring.base import ScoredRetrievalResult
 from core.graph.chat_store import MessageRecord
 
 _CITATION_RULES = """\
-STRICT RULES — you must follow these without exception:
-1. Prefer to answer from the retrieved context chunks and knowledge graph facts. You MUST cite every claim drawn from the knowledge graph by placing the exact Fact_N label inline, immediately after the sentence that makes the claim — e.g. "Watkins developed Q-learning in 1989. (Fact_3)" — never grouped at the end of a paragraph or the end of the response. Multiple facts supporting the same sentence go together: (Fact_1, Fact_4).
-2. If the knowledge graph does not contain enough information to answer the question, you may draw on your general training knowledge to answer — but you MUST begin your response with this exact warning: "⚠️ The knowledge graph does not contain information to answer this question. The following answer is based on general knowledge and should be verified for accuracy." Do not use fact labels for claims sourced from general knowledge.
-3. If some parts of a question are answerable from the knowledge graph and others are not, answer the supported parts with fact citations, then answer the unsupported parts from general knowledge with the warning above.
-4. Prefer knowledge graph facts with higher composite trust scores — they are more reliably grounded in the source material.
-5. When retrieved context or facts are relevant to the question, you MUST commit to a specific answer. Never respond with phrases like "cannot determine", "insufficient information", or "not mentioned" when relevant context is present — state your best answer drawn from the available evidence, with inline citations.\
+CITATION RULES:
+1. Answer from the retrieved context and knowledge graph facts provided. Both the "## Retrieved Context" passages and the "## Knowledge Graph Facts" triples are from the knowledge graph.
+2. For every sentence in your answer that uses information from a Fact_N triple, write (Fact_N) immediately after that sentence — not at the end of a paragraph, not at the end of the response, but right after the sentence. Multiple facts for one sentence: (Fact_1, Fact_4).
+   Example of correct citation: "The project focuses on trust and certification. (Fact_2) It is funded by NASA. (Fact_5, Fact_8)"
+   Example of WRONG citation: "...trust and certification. It is funded by NASA. (Fact_2, Fact_5, Fact_8)"
+3. If a claim comes from a "## Retrieved Context" passage with no corresponding Fact_N, state it without a label.\
 """
 
 _SYSTEM_PROMPT = """\
@@ -111,15 +111,16 @@ def build_prompt(
                 )
 
         context_lines.append(
-            "\nIMPORTANT: Place each (Fact_N) citation inline, directly after the sentence "
-            "that makes the claim — not at the end of a paragraph or the end of your response. "
-            "Only use Fact_N labels that appear above."
+            "\nCITATION FORMAT — follow this exactly:\n"
+            "Write (Fact_N) immediately after every sentence that uses a Fact_N triple above.\n"
+            "Example: 'The system uses neural networks. (Fact_3) It was developed at Langley. (Fact_7, Fact_9)'\n"
+            "Do NOT group citations at the end of a paragraph. Do NOT omit citations for claims from the facts list."
         )
         messages.append({"role": "user", "content": "\n".join(context_lines)})
         if expert_name:
-            prefill = f"Got it. I'll draw on those facts and cite them with Fact_N labels as I go."
+            prefill = "Got it. I'll draw on those facts and cite them inline as (Fact_N) after each sentence that uses one."
         else:
-            prefill = "Understood. I have reviewed the retrieved context and knowledge graph facts. I will cite every knowledge-graph-grounded claim using the exact Fact_N labels provided above (e.g., Fact_1, Fact_2). I'm ready to answer."
+            prefill = "Understood. I will answer from the retrieved context and cite each Fact_N inline immediately after the sentence that uses it."
         messages.append({"role": "assistant", "content": prefill})
 
     # 3. Recent conversation history (last N turns = 2*N messages)
