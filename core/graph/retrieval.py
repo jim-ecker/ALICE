@@ -35,6 +35,7 @@ class RetrievedTriple:
     entity_anchor_score: float | None = None
     evidence_scope_score: float | None = None
     confidence_version: str | None = None
+    fact_id: int | None = None
 
 
 @dataclass
@@ -328,7 +329,8 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
         WHERE r.chunk_id IN $ids
         RETURN e1.name, e1.type, r.relation, e2.name, e2.type, r.certainty_score, r.chunk_id,
                r.raw_certainty_score, r.evidence_text, r.evidence_char_start, r.evidence_char_end,
-               r.evidence_alignment_score, r.entity_anchor_score, r.evidence_scope_score, r.confidence_version
+               r.evidence_alignment_score, r.entity_anchor_score, r.evidence_scope_score, r.confidence_version,
+               r.fact_id
         """,
         parameters={"ids": chunk_ids},
     )
@@ -357,6 +359,7 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
                 entity_anchor_score=float(row[12]) if row[12] is not None else None,
                 evidence_scope_score=float(row[13]) if row[13] is not None else None,
                 confidence_version=row[14] or None,
+                fact_id=int(row[15]) if row[15] is not None else None,
             )
         )
 

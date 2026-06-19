@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 import kuzu
@@ -56,7 +57,8 @@ _SCHEMA = [
         evidence_alignment_score DOUBLE,
         entity_anchor_score DOUBLE,
         evidence_scope_score DOUBLE,
-        confidence_version STRING
+        confidence_version STRING,
+        fact_id INT64
     )
     """,
 ]
@@ -117,12 +119,31 @@ class KuzuStore(GraphStore):
             "ALTER TABLE RELATES_TO ADD entity_anchor_score DOUBLE",
             "ALTER TABLE RELATES_TO ADD evidence_scope_score DOUBLE",
             "ALTER TABLE RELATES_TO ADD confidence_version STRING",
+            "ALTER TABLE RELATES_TO ADD fact_id INT64",
         ]
         for statement in rel_migrations:
             try:
                 self._conn.execute(statement)
             except Exception:
                 pass
+        # Backfill stable fact_id for edges written before this column existed
+        null_result = self._conn.execute(
+            "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) WHERE r.fact_id IS NULL "
+            "RETURN s.name, r.relation, e.name, r.chunk_id"
+        )
+        while null_result.has_next():
+            row = null_result.get_next()
+            subj, rel, obj, cid = row[0], row[1], row[2], row[3]
+            fid = int.from_bytes(
+                hashlib.sha256(f"{subj}\x00{rel}\x00{obj}\x00{cid}".encode()).digest()[:8],
+                'big',
+            ) & 0x7FFFFFFFFFFFFFFF
+            self._conn.execute(
+                "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) "
+                "WHERE s.name=$s AND e.name=$e AND r.relation=$rel AND r.chunk_id=$cid "
+                "SET r.fact_id=$fid",
+                parameters={"s": subj, "e": obj, "rel": rel, "cid": cid, "fid": fid},
+            )
         # Backfill extracted_at for chunks that already have triples so they aren't re-processed
         self._conn.execute(
             """
@@ -369,7 +390,8 @@ class KuzuStore(GraphStore):
                 evidence_alignment_score: $evidence_alignment_score,
                 entity_anchor_score: $entity_anchor_score,
                 evidence_scope_score: $evidence_scope_score,
-                confidence_version: $confidence_version
+                confidence_version: $confidence_version,
+                fact_id: $fact_id
             }]->(o)
             """,
             parameters={
@@ -386,6 +408,12 @@ class KuzuStore(GraphStore):
                 "entity_anchor_score": entity_anchor_score,
                 "evidence_scope_score": evidence_scope_score,
                 "confidence_version": confidence_version,
+                "fact_id": int.from_bytes(
+                    hashlib.sha256(
+                        f"{subject}\x00{relation}\x00{object_}\x00{chunk_id}".encode()
+                    ).digest()[:8],
+                    'big',
+                ) & 0x7FFFFFFFFFFFFFFF,
             },
         )
 

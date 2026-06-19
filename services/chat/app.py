@@ -385,8 +385,9 @@ def create_app(state, chat, cfg) -> FastAPI:
         # 6. Build citation objects from trust bundles
         chunk_map = {c.chunk_id: c for c in retrieval.chunks}
         bundle_map: dict[str, list[tuple[int, object]]] = {}
-        for fact_idx, b in enumerate(retrieval.trust_bundles, start=1):
-            bundle_map.setdefault(b.triple.chunk_id, []).append((fact_idx, b))
+        for enum_idx, b in enumerate(retrieval.trust_bundles, start=1):
+            fact_id = b.triple.fact_id if b.triple.fact_id is not None else enum_idx
+            bundle_map.setdefault(b.triple.chunk_id, []).append((fact_id, b))
 
         cited_set = set(cited_fact_indices)
         citations: list[Citation] = []
