@@ -685,7 +685,7 @@ function formatMarkdown(text) {
     .replace(/```[\s\S]*?```/g, m => `<pre style="background:var(--surface2);padding:8px;border-radius:4px;overflow-x:auto;margin:6px 0;font-size:12px"><code>${m.slice(3,-3)}</code></pre>`)
     .replace(/`([^`]+)`/g, '<code style="background:var(--surface2);padding:1px 4px;border-radius:3px">$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\bFact_(\d+)\b/g, '<a class="fact-ref" data-fact="$1">Fact_$1</a>')
+    .replace(/\bFact_([0-9a-f]{6})\b/g, '<a class="fact-ref" data-fact="$1">Fact_$1</a>')
     .replace(/\n/g, '<br>');
   // Restore math regions
   for (const [k, rendered] of Object.entries(mathMap)) {

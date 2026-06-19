@@ -47,7 +47,7 @@ def build_prompt(
     expert_name: str | None = None,
     expert_persona: str | None = None,
     expert_persona_strength: float = 1.0,
-) -> tuple[list[dict[str, str]], dict[int, str]]:
+) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Build the LLM message list for a chat turn.
 
     Returns (messages, fact_index_to_chunk_id) where fact_index_to_chunk_id maps
@@ -55,7 +55,7 @@ def build_prompt(
     """
     messages: list[dict[str, str]] = []
     index_to_chunk_id: dict[int, str] = {}
-    fact_index_to_chunk_id: dict[int, str] = {}
+    fact_index_to_chunk_id: dict[str, str] = {}
 
     # 1. System message
     phrase, include_reminder = _persona_framing(expert_persona_strength)
@@ -92,8 +92,9 @@ def build_prompt(
             context_lines.append("## Knowledge Graph Facts\n")
             for enum_idx, bundle in enumerate(retrieval.trust_bundles, start=1):
                 t = bundle.triple
-                fact_id = t.fact_id if t.fact_id is not None else enum_idx
-                fact_index_to_chunk_id[fact_id] = t.chunk_id
+                raw_id = t.fact_id if t.fact_id is not None else enum_idx
+                short_id = f"{raw_id:016x}"[:6]
+                fact_index_to_chunk_id[short_id] = t.chunk_id
 
                 # Build trust signal summary
                 signals = [f"composite={bundle.composite_trust:.0%}"]
@@ -106,7 +107,7 @@ def build_prompt(
                     signals.append(f"gnd={bundle.grounding_score:.0%}")
 
                 context_lines.append(
-                    f"Fact_{fact_id}: {t.subject} ({t.subject_type})"
+                    f"Fact_{short_id}: {t.subject} ({t.subject_type})"
                     f" --[{t.relation}]--> "
                     f"{t.object_} ({t.object_type})"
                     f"  [{', '.join(signals)}]"

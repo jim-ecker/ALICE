@@ -374,7 +374,7 @@ def create_app(state, chat, cfg) -> FastAPI:
 
         # 4a. Collect only the chunks the LLM actually cited, in citation order
         cited_fact_indices = list(
-            dict.fromkeys(int(m) for m in re.findall(r'Fact_(\d+)', answer))
+            dict.fromkeys(re.findall(r'Fact_([0-9a-f]{6})', answer))
         )
         cited_chunk_ids_ordered = list(dict.fromkeys(
             fact_index_to_chunk_id[i]
@@ -388,10 +388,11 @@ def create_app(state, chat, cfg) -> FastAPI:
 
         # 6. Build citation objects from trust bundles
         chunk_map = {c.chunk_id: c for c in retrieval.chunks}
-        bundle_map: dict[str, list[tuple[int, object]]] = {}
+        bundle_map: dict[str, list[tuple[str, object]]] = {}
         for enum_idx, b in enumerate(retrieval.trust_bundles, start=1):
-            fact_id = b.triple.fact_id if b.triple.fact_id is not None else enum_idx
-            bundle_map.setdefault(b.triple.chunk_id, []).append((fact_id, b))
+            raw_id = b.triple.fact_id if b.triple.fact_id is not None else enum_idx
+            short_id = f"{raw_id:016x}"[:6]
+            bundle_map.setdefault(b.triple.chunk_id, []).append((short_id, b))
 
         cited_set = set(cited_fact_indices)
         citations: list[Citation] = []
