@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from .config import SheafConfig
-from .extend import harmonic_extend, schur_abstention
+from .extend import harmonic_extend, dirichlet_abstention
 from .laplacian import assemble_sheaf_laplacian
 from .query_section import EntityEmbeddingProvider, build_query_section
 from .readout import readout, union_top_chunks
@@ -104,7 +104,7 @@ def retrieve(
     scored = readout(edges, x, idx, d, restriction, cfg)
     chunk_ids = union_top_chunks(scored, cfg.max_context_chunks)
 
-    abstain = schur_abstention(abstain_energy, x_B, eps=cfg.ridge)
+    abstain = dirichlet_abstention(abstain_energy, x_B, eps=cfg.ridge)
 
     return RetrievalResult(
         chunk_ids=chunk_ids,
