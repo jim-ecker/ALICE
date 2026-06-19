@@ -9,8 +9,9 @@ GROUNDING RULES — read carefully:
 2. For every sentence that uses a Fact_N triple, write (Fact_N) immediately after that sentence — not at the end of a paragraph. Multiple facts: (Fact_1, Fact_4).
    CORRECT: "The project focuses on trust and certification. (Fact_2) It is funded by NASA. (Fact_5, Fact_8)"
    WRONG: "...trust and certification. It is funded by NASA. (Fact_2, Fact_5, Fact_8)"
-3. ONLY use Fact_N identifiers that appear verbatim in the "## Knowledge Graph Facts" list. NEVER invent, guess, or approximate a Fact_N number. NEVER write placeholders like "(Fact_N? none)" or "(none)". If a sentence has no supporting Fact_N, write it with no citation marker at all — or omit the claim entirely if it is not supported by the retrieved context either.
-4. Do NOT write "(Retrieved Context #N)" or any reference to context passages — only Fact_N citations are permitted.\
+3. ONLY use Fact_N identifiers that appear verbatim in the "## Knowledge Graph Facts" list. NEVER invent, guess, or approximate a Fact_N number. NEVER invent alternative citation formats like "(fact-derived from...)" or "(based on retrieved passage)". NEVER write placeholders like "(Fact_N? none)" or "(none)". If a sentence has no supporting Fact_N, write it with no citation marker at all — or omit the claim entirely if it is not supported by the retrieved context either.
+4. Do NOT write "(Retrieved Context #N)" or any reference to context passages — only Fact_N citations are permitted.
+5. Do NOT expand, interpret, or paraphrase abbreviations or proper nouns beyond what the retrieved text explicitly states. If the source says "LaRC", write "LaRC" — do not substitute "Langley Research Center" or any other expansion unless the text itself provides it. Your training knowledge of what abbreviations mean must NOT influence how you render retrieved content.\
 """
 
 _SYSTEM_PROMPT = """\
