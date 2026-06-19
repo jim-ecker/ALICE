@@ -32,7 +32,7 @@ def harmonic_extend(
     rhs = -(L_UB @ xb)
 
     if cfg.solver == "cg":
-        xU, _info = scipy.sparse.linalg.cg(L_UU.tocsr(), rhs, rtol=1e-10, atol=0.0)
+        xU, _info = scipy.sparse.linalg.cg(L_UU.tocsr(), rhs, rtol=1e-4, atol=0.0, maxiter=200)
     else:
         xU = scipy.sparse.linalg.spsolve(L_UU.tocsc(), rhs)
 
