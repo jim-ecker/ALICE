@@ -130,6 +130,49 @@ def get_current_user(request: Request) -> str:
     return request.headers.get("X-Remote-User", "").strip().lower()
 
 
+def _clean_model_text(text: str | None) -> str:
+    """Remove wrapper markup some local models emit around short utility responses."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    cleaned = re.sub(r"(?is)<think>.*?</think>", "", cleaned).strip()
+    cleaned = re.sub(r"(?is)^```(?:\w+)?\s*|\s*```$", "", cleaned).strip()
+    return cleaned
+
+
+def _sanitize_title(raw_title: str | None, fallback: str) -> str:
+    title = _clean_model_text(raw_title)
+    # Keep only the first non-empty line. Some models append explanations despite
+    # the "title only" instruction, and those can make the sidebar unusable.
+    lines = [line.strip() for line in title.splitlines() if line.strip()]
+    title = lines[0] if lines else ""
+    title = re.sub(r"^(title|conversation title)\s*:\s*", "", title, flags=re.I).strip()
+    title = title.strip("\"'`“”‘’").strip()
+    title = re.sub(r"\s+", " ", title)
+    if not title:
+        title = fallback
+    if len(title) > 80:
+        title = title[:77].rstrip() + "..."
+    return title or "New Conversation"
+
+
+def _fallback_title_from_query(query: str) -> str:
+    query = re.sub(r"\s+", " ", query).strip()
+    if not query:
+        return "New Conversation"
+    if len(query) <= 60:
+        return query
+    return query[:57].rstrip() + "..."
+
+
+def _fallback_expert_intro(name: str | None, areas: str) -> str:
+    display = name or "this expert"
+    return (
+        f"Hello, I am {display}'s AI avatar in ALICE, not the real {display}. "
+        f"I can help you explore knowledge related to {areas} and point back to the retrieved source material as we work."
+    )
+
+
 # ── App factory ──────────────────────────────────────────────────────────────
 
 def create_app(state, chat, cfg) -> FastAPI:
@@ -316,8 +359,12 @@ def create_app(state, chat, cfg) -> FastAPI:
                 "content": f"User asked: {req.content}\n\nAssistant answered: {answer[:400]}",
             },
         ]
-        new_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 20)
-        new_title = new_title.strip().strip('"').strip("'")
+        fallback_title = _fallback_title_from_query(req.content)
+        try:
+            raw_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 20)
+        except Exception:
+            raw_title = ""
+        new_title = _sanitize_title(raw_title, fallback_title)
         state.chat_store.update_conversation_title(conv_id, new_title, owner=owner)
 
         return SendMessageResponse(
@@ -384,7 +431,14 @@ def create_app(state, chat, cfg) -> FastAPI:
             },
             {"role": "user", "content": "Introduce yourself."},
         ]
-        intro = await asyncio.to_thread(state.llm.chat, intro_messages, 200)
+        try:
+            intro = _clean_model_text(await asyncio.to_thread(state.llm.chat, intro_messages, 200))
+        except Exception:
+            intro = ""
+        if not intro:
+            intro = _fallback_expert_intro(state.expert_name, areas_str)
+        if "AI" not in intro and "avatar" not in intro.lower():
+            intro = f"{intro}\n\nNote: I am an AI avatar in ALICE, not the real {state.expert_name}."
 
         return {"slug": state.active_expert, "name": state.expert_name, "intro": intro}
 
