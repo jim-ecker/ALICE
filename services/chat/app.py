@@ -50,6 +50,8 @@ class MessageItem(BaseModel):
     content: str
     created_at: str
     citations: list[Any] = []
+    abstain: float = 0.0
+    abstain_reason: str = ""
 
 
 class GetMessagesResponse(BaseModel):
@@ -61,7 +63,7 @@ class SendMessageRequest(BaseModel):
 
 
 class CitationTriple(BaseModel):
-    fact_index: int
+    fact_index: str
     subject: str
     subject_type: str
     relation: str
@@ -327,6 +329,8 @@ def create_app(state, chat, cfg) -> FastAPI:
                 content=m.content,
                 created_at=m.created_at,
                 citations=json.loads(m.citations_json) if m.citations_json else [],
+                abstain=m.abstain,
+                abstain_reason=m.abstain_reason,
             )
             for m in messages
         ]
@@ -397,7 +401,7 @@ def create_app(state, chat, cfg) -> FastAPI:
                 continue
             triples = [
                 CitationTriple(
-                    fact_index=fact_idx,
+                    fact_index=str(fact_idx),
                     subject=b.triple.subject,
                     subject_type=b.triple.subject_type,
                     relation=b.triple.relation,
@@ -435,12 +439,6 @@ def create_app(state, chat, cfg) -> FastAPI:
                 "The following answer is based on general knowledge and should be verified for accuracy.\n\n"
                 + answer
             )
-
-        # 8. Save assistant message with serialized citations
-        citations_json = json.dumps([c.model_dump() for c in citations])
-        asst_msg = state.chat_store.add_message(
-            conv_id, "assistant", answer, citation_chunk_ids, citations_json
-        )
 
         # 7a. Build post-answer LLM tasks (title + optional abstain reason) and run in parallel
         _title_messages = [
@@ -492,9 +490,14 @@ def create_app(state, chat, cfg) -> FastAPI:
             except Exception:
                 return ""
 
-        # 8. Run title + abstain reason in parallel
+        # 8. Run title + abstain reason in parallel, then persist assistant message
         new_title, abstain_reason = await asyncio.gather(_gen_title(), _gen_abstain_reason())
         state.chat_store.update_conversation_title(conv_id, new_title, owner=owner)
+        citations_json = json.dumps([c.model_dump() for c in citations])
+        asst_msg = state.chat_store.add_message(
+            conv_id, "assistant", answer, citation_chunk_ids, citations_json,
+            abstain=retrieval.abstain, abstain_reason=abstain_reason,
+        )
 
         return SendMessageResponse(
             message_id=asst_msg.id,

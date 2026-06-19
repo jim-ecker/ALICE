@@ -61,6 +61,8 @@ class MessageRecord:
     created_at: str
     citation_chunk_ids: list[str]
     citations_json: str = ""
+    abstain: float = 0.0
+    abstain_reason: str = ""
 
 
 class ChatStore:
@@ -77,6 +79,14 @@ class ChatStore:
             self._conn.execute(statement)
         try:
             self._conn.execute("ALTER TABLE Message ADD citations_json STRING DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            self._conn.execute("ALTER TABLE Message ADD abstain DOUBLE DEFAULT 0.0")
+        except Exception:
+            pass
+        try:
+            self._conn.execute("ALTER TABLE Message ADD abstain_reason STRING DEFAULT ''")
         except Exception:
             pass
         try:
@@ -141,6 +151,8 @@ class ChatStore:
         content: str,
         citation_chunk_ids: list[str],
         citations_json: str = "",
+        abstain: float = 0.0,
+        abstain_reason: str = "",
     ) -> MessageRecord:
         msg_id = _new_id()
         created_at = _now()
@@ -153,7 +165,9 @@ class ChatStore:
                 content: $content,
                 created_at: $created_at,
                 citation_chunk_ids: $citation_chunk_ids,
-                citations_json: $citations_json
+                citations_json: $citations_json,
+                abstain: $abstain,
+                abstain_reason: $abstain_reason
             })
             """,
             parameters={
@@ -164,6 +178,8 @@ class ChatStore:
                 "created_at": created_at,
                 "citation_chunk_ids": json.dumps(citation_chunk_ids),
                 "citations_json": citations_json,
+                "abstain": abstain,
+                "abstain_reason": abstain_reason,
             },
         )
         self._conn.execute(
@@ -181,13 +197,15 @@ class ChatStore:
             created_at=created_at,
             citation_chunk_ids=citation_chunk_ids,
             citations_json=citations_json,
+            abstain=abstain,
+            abstain_reason=abstain_reason,
         )
 
     def get_messages(self, conversation_id: str) -> list[MessageRecord]:
         result = self._conn.execute(
             """
             MATCH (c:Conversation {id: $conv_id})-[:HAS_MESSAGE]->(m:Message)
-            RETURN m.id, m.conversation_id, m.role, m.content, m.created_at, m.citation_chunk_ids, m.citations_json
+            RETURN m.id, m.conversation_id, m.role, m.content, m.created_at, m.citation_chunk_ids, m.citations_json, m.abstain, m.abstain_reason
             ORDER BY m.created_at ASC
             """,
             parameters={"conv_id": conversation_id},
@@ -208,6 +226,8 @@ class ChatStore:
                     created_at=row[4],
                     citation_chunk_ids=chunk_ids,
                     citations_json=row[6] or "",
+                    abstain=float(row[7]) if row[7] is not None else 0.0,
+                    abstain_reason=row[8] or "",
                 )
             )
         return messages

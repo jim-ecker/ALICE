@@ -549,7 +549,7 @@ function renderMessages(messages) {
   container.innerHTML = '';
   if (!messages.length) return;
   for (const msg of messages) {
-    container.appendChild(buildMsgEl(msg.role, msg.content, msg.citations || []));
+    container.appendChild(buildMsgEl(msg.role, msg.content, msg.citations || [], null, msg.abstain || 0.0, msg.abstain_reason || ''));
   }
 }
 
