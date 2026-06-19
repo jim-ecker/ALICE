@@ -9,7 +9,7 @@ from core.embeddings.client import EmbeddingsClient
 from core.embeddings.index import EmbeddingIndex
 from core.graph.retrieval import _match_anchor_entities, find_entity_chunks, find_trust_paths, retrieve_context
 from core.scoring.base import ScoredRetrievalResult, TripleScorer
-from services.experts.sheaf.config import SheafConfig
+from core.graph.sheaf.config import SheafConfig
 
 logger = logging.getLogger(__name__)
 
@@ -80,12 +80,12 @@ class Retriever:
         # the ego subgraph and augment with the highest-activation evidence chunks.
         sheaf_abstain = 0.0
         if self._sheaf_harmonic:
-            from services.experts.sheaf.query_section import (
+            from core.graph.sheaf.query_section import (
                 EntityEmbeddingProvider,
                 PCAProjection,
             )
-            from services.experts.sheaf.retrieve import ego_subgraph
-            from services.experts.sheaf.retrieve import retrieve as sheaf_retrieve
+            from core.graph.sheaf.retrieve import ego_subgraph
+            from core.graph.sheaf.retrieve import retrieve as sheaf_retrieve
 
             anchors = _match_anchor_entities(self._conn, query)
             if anchors:
