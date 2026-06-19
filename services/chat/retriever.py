@@ -90,6 +90,15 @@ class Retriever:
             from core.graph.sheaf.retrieve import retrieve as sheaf_retrieve
 
             anchors = _match_anchor_entities(self._conn, query)
+            # Deduplicate case-insensitively — variants like 'Autonomous Systems'
+            # and 'autonomous systems' expand nearly identical BFS neighborhoods.
+            _seen_lower: set[str] = set()
+            _deduped: list[str] = []
+            for _a in anchors:
+                if _a.lower() not in _seen_lower:
+                    _seen_lower.add(_a.lower())
+                    _deduped.append(_a)
+            anchors = _deduped
             if anchors:
                 nodes, _edges = ego_subgraph(
                     self._conn, anchors, self._sheaf_cfg.radius, self._sheaf_cfg.max_nodes
