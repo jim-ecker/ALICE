@@ -563,7 +563,7 @@ function buildMsgEl(role, content, citations, walltime = null, abstain = 0.0, ab
     ? `<div class="msg-walltime">${walltime.toFixed(1)}s</div>` : '';
   let abstainHTML = '';
   if (role === 'assistant' && abstain > 0.5) {
-    const reason = abstainReason ? esc(abstainReason) : 'The retrieved facts may be too generic or sparse to fully support this answer.';
+    const reason = abstainReason ? formatMarkdown(abstainReason) : 'The retrieved facts may be too generic or sparse to fully support this answer.';
     abstainHTML = `<div class="abstain-warning">⚠ Low context confidence — ${reason} (uncertainty: ${Math.round(abstain * 100)}%)</div>`;
   }
   const bubbleContent = role === 'assistant'
