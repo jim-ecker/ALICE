@@ -360,7 +360,9 @@ def create_app(state, chat, cfg) -> FastAPI:
         )
 
         # 4. Generate answer
-        answer: str = await asyncio.to_thread(state.llm.chat, messages, cfg.max_tokens)
+        answer: str | None = await asyncio.to_thread(state.llm.chat, messages, cfg.max_tokens)
+        if not answer:
+            raise HTTPException(status_code=503, detail="LLM returned an empty response")
 
         # Strip any LLM-generated general-knowledge warning — the app adds its own below
         _WARNING_PREFIX = "⚠️ The knowledge graph does not contain information to answer this question. The following answer is based on general knowledge and should be verified for accuracy."
