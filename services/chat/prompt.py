@@ -4,13 +4,13 @@ from core.scoring.base import ScoredRetrievalResult
 from core.graph.chat_store import MessageRecord
 
 _CITATION_RULES = """\
-CITATION RULES:
-1. Answer from the retrieved context and knowledge graph facts provided. Both the "## Retrieved Context" passages and the "## Knowledge Graph Facts" triples are from the knowledge graph.
-2. For every sentence in your answer that uses information from a Fact_N triple, write (Fact_N) immediately after that sentence — not at the end of a paragraph, not at the end of the response, but right after the sentence. Multiple facts for one sentence: (Fact_1, Fact_4).
-   Example of correct citation: "The project focuses on trust and certification. (Fact_2) It is funded by NASA. (Fact_5, Fact_8)"
-   Example of WRONG citation: "...trust and certification. It is funded by NASA. (Fact_2, Fact_5, Fact_8)"
-3. ONLY cite Fact_N identifiers that appear verbatim in the "## Knowledge Graph Facts" list above. NEVER invent or guess a Fact_N number. If no Fact_N covers a claim, write the sentence with no citation at all.
-4. If a claim comes from a "## Retrieved Context" passage, state it without any citation label. Do NOT write "(Retrieved Context #N)" or any similar reference — only Fact_N citations are permitted.\
+GROUNDING RULES — read carefully:
+1. You may ONLY make claims that are directly supported by the "## Retrieved Context" passages or "## Knowledge Graph Facts" triples provided. Do NOT use your general training knowledge to add claims, examples, or elaborations that are not present in the retrieved material.
+2. For every sentence that uses a Fact_N triple, write (Fact_N) immediately after that sentence — not at the end of a paragraph. Multiple facts: (Fact_1, Fact_4).
+   CORRECT: "The project focuses on trust and certification. (Fact_2) It is funded by NASA. (Fact_5, Fact_8)"
+   WRONG: "...trust and certification. It is funded by NASA. (Fact_2, Fact_5, Fact_8)"
+3. ONLY use Fact_N identifiers that appear verbatim in the "## Knowledge Graph Facts" list. NEVER invent, guess, or approximate a Fact_N number. NEVER write placeholders like "(Fact_N? none)" or "(none)". If a sentence has no supporting Fact_N, write it with no citation marker at all — or omit the claim entirely if it is not supported by the retrieved context either.
+4. Do NOT write "(Retrieved Context #N)" or any reference to context passages — only Fact_N citations are permitted.\
 """
 
 _SYSTEM_PROMPT = """\
