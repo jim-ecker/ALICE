@@ -486,7 +486,7 @@ def create_app(state, chat, cfg) -> FastAPI:
                 },
             ]
             try:
-                raw = await asyncio.to_thread(state.llm.chat, _msgs, 60)
+                raw = await asyncio.to_thread(state.llm.chat, _msgs, 512)
                 return _clean_model_text(raw).strip()
             except Exception:
                 return ""
