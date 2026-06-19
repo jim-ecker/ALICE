@@ -37,6 +37,7 @@ study/data/
 
 # Dev/debug scripts
 diagnose_retrieval.py
+experiments/tppr_probe.py
 
 # Reference PDFs (not redistributable)
 notes/
@@ -46,6 +47,9 @@ tests/
 
 # Local ingest folder (this can be set by user)
 ingest-folder/
+
+# NASA ingest PDFs (local corpus, not redistributable)
+na-ingest/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
