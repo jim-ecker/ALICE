@@ -152,12 +152,17 @@ CHAT_HTML = r"""<!DOCTYPE html>
   }
   .open-page-link:hover { border-color: var(--accent); }
   .open-page-link.loading { opacity: 0.5; cursor: wait; }
-  .citation-triples { display: flex; flex-direction: column; gap: 4px; }
+  .citation-triples { display: flex; flex-direction: column; gap: 2px; }
   .triple-row { font-size: 11px; color: var(--text2); border-radius: 4px; padding: 2px 4px; transition: background 0.3s; }
   .triple-row.fact-highlight { animation: fact-flash 1.2s ease-out; }
   @keyframes fact-flash { 0% { background: var(--accent); } 100% { background: transparent; } }
   .fact-label { font-size: 10px; font-weight: 700; color: var(--text2); opacity: 0.6;
                 margin-right: 5px; font-family: monospace; }
+  .triple-toggle { background: none; border: none; padding: 0 2px; font-size: 9px;
+                   color: var(--text2); opacity: 0.4; cursor: pointer; line-height: 1; }
+  .triple-toggle:hover { opacity: 0.8; }
+  .triple-details { display: none; margin-top: 2px; }
+  .triple-details.expanded { display: block; }
   .fact-ref { color: var(--accent2); font-size: 12px; cursor: pointer; text-decoration: none; font-family: monospace; }
   .fact-ref:hover { text-decoration: underline; }
   .doc-link { color: inherit; text-decoration: underline; text-decoration-color: var(--border); }
@@ -604,14 +609,19 @@ function buildCitationsHTML(citations) {
       const rawCertHTML = t.extractor_certainty != null
         ? `<div class="triple-raw-certainty">raw extractor certainty ${Math.round(t.extractor_certainty * 100)}%</div>`
         : '';
+      const shortId = String(t.fact_index).slice(-6);
+      const detailId = 'td-' + Math.random().toString(36).slice(2);
       return `<div class="triple-row" data-fact="${t.fact_index}">
-        <span class="fact-label">Fact_${t.fact_index}</span>
+        <span class="fact-label">#${shortId}</span>
         <span class="entity">${esc(t.subject)}</span>
         <span class="relation"> --[${esc(t.relation)}]→ </span>
         <span class="entity">${esc(t.object_)}</span>
-        ${trustBars}
-        ${evidenceHTML}
-        ${rawCertHTML}
+        <button class="triple-toggle" data-target="${detailId}" title="show trust details">▸</button>
+        <div class="triple-details" id="${detailId}">
+          ${trustBars}
+          ${evidenceHTML}
+          ${rawCertHTML}
+        </div>
       </div>`;
     }).join('');
     const isLocal = c.document_url && c.document_url.startsWith('file://');
@@ -769,6 +779,15 @@ async function sendMessage() {
 }
 
 // ── Citation interactions ────────────────────────────────────────────────────
+
+// Expand/collapse triple details
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.triple-toggle');
+  if (!btn) return;
+  const el = document.getElementById(btn.dataset.target);
+  if (!el) return;
+  btn.textContent = el.classList.toggle('expanded') ? '▾' : '▸';
+});
 
 // Expand/collapse chunk text
 document.addEventListener('click', e => {
