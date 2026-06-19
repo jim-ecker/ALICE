@@ -16,6 +16,7 @@ from typing import Any, Optional
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 STUDY_DIR = _REPO_ROOT / "study"
 SESSIONS_DIR = STUDY_DIR / "data" / "sessions"
+PROFILES_DIR = STUDY_DIR / "data" / "profiles"
 EVALUATIONS_FILE = STUDY_DIR / "data" / "evaluations.jsonl"
 CONFIG_DIR = STUDY_DIR / "config"
 
@@ -45,6 +46,26 @@ def load_questionnaire_schema() -> list[dict]:
     if not path.exists():
         return []
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _email_slug(email: str) -> str:
+    """Convert email to a filesystem-safe slug."""
+    import re
+    return re.sub(r"[^a-z0-9_.-]", "_", email.lower().strip())
+
+
+def load_profile(email: str) -> Optional[dict]:
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    path = PROFILES_DIR / f"{_email_slug(email)}.json"
+    if not path.exists():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def save_profile(email: str, profile: dict) -> None:
+    PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    path = PROFILES_DIR / f"{_email_slug(email)}.json"
+    path.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def load_response_bank() -> list[dict]:

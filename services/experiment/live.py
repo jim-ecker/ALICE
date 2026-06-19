@@ -95,3 +95,47 @@ def query_generic_llm(question: str, llm: Any, max_tokens: int = 1024) -> str:
         {"role": "user", "content": question},
     ]
     return llm.chat(messages, max_tokens)
+
+
+def query_commercial_llm(agent_config: dict, question: str, max_tokens: int = 1024) -> str:
+    """Query a commercial LLM API (OpenAI, Anthropic, Gemini) without KB context.
+
+    agent_config fields: provider, model, base_url (optional), api_key_env.
+    Gemini uses the OpenAI-compatible endpoint; Anthropic uses its own SDK.
+    """
+    import os
+
+    provider = agent_config.get("provider", "openai")
+    model = agent_config["model"]
+    api_key_env = agent_config.get("api_key_env", "")
+    api_key = os.environ.get(api_key_env, "") if api_key_env else ""
+
+    system = (
+        "You are a helpful AI assistant. Answer the following question "
+        "as accurately and concisely as you can based on your training knowledge."
+    )
+
+    if provider == "anthropic":
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": question}],
+        )
+        return resp.content[0].text
+    else:
+        # openai-compatible: covers OpenAI native and Gemini's compat endpoint
+        from openai import OpenAI
+        base_url = agent_config.get("base_url") or None
+        client = OpenAI(api_key=api_key or "token", base_url=base_url)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": question},
+            ],
+            max_tokens=max_tokens,
+        )
+        return resp.choices[0].message.content or ""

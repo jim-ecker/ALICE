@@ -25,6 +25,7 @@ class ScoredRetrievalResult:
     chunks: list[CitationChunk]
     trust_bundles: list[TrustBundle]  # scored and optionally filtered
     embedding_chunk_ids: list[str] = field(default_factory=list)  # chunk_ids from embedding search, ordered by cosine similarity
+    abstain: float = 0.0  # sheaf-harmonic abstention energy; 0.0 when not using SHI
 
     def rerank(self) -> "ScoredRetrievalResult":
         """Return a new ScoredRetrievalResult with chunks and triples sorted by composite_trust descending."""
@@ -72,7 +73,7 @@ class ScoredRetrievalResult:
                 -chunk_scores.get(c.chunk_id, 0.0), # then by triple composite desc
             ),
         )
-        return ScoredRetrievalResult(chunks=sorted_chunks, trust_bundles=deduped, embedding_chunk_ids=self.embedding_chunk_ids)
+        return ScoredRetrievalResult(chunks=sorted_chunks, trust_bundles=deduped, embedding_chunk_ids=self.embedding_chunk_ids, abstain=self.abstain)
 
 
 class TripleScorer(ABC):

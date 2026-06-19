@@ -125,6 +125,7 @@ class Chat:
             top_k=self._chat_cfg.top_k_chunks,
             hop_depth=self._chat_cfg.entity_hop_depth,
             max_hop2_entities=self._chat_cfg.max_hop2_entities,
+            sheaf_harmonic=self._chat_cfg.sheaf_harmonic,
         )
 
         return ServiceState(
