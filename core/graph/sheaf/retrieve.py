@@ -36,14 +36,16 @@ def ego_subgraph(
         while res.has_next():
             row = res.get_next()
             u, rel, cert, cid, v = row[0], row[1], row[2], row[3], row[4]
+            if v not in visited_nodes:
+                if len(nodes) >= max_nodes:
+                    continue
+                visited_nodes.add(v)
+                nodes.append(v)
+                next_frontier.append(v)
             key = (u, v, rel, cid)
             if key not in edges_seen:
                 edges_seen.add(key)
                 edges.append(Edge(u=u, v=v, relation=rel, certainty=cert, chunk_id=cid))
-            if v not in visited_nodes and len(nodes) < max_nodes:
-                visited_nodes.add(v)
-                nodes.append(v)
-                next_frontier.append(v)
 
         res = conn.execute(
             "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) "
@@ -54,14 +56,16 @@ def ego_subgraph(
         while res.has_next():
             row = res.get_next()
             u, rel, cert, cid, v = row[0], row[1], row[2], row[3], row[4]
+            if u not in visited_nodes:
+                if len(nodes) >= max_nodes:
+                    continue
+                visited_nodes.add(u)
+                nodes.append(u)
+                next_frontier.append(u)
             key = (u, v, rel, cid)
             if key not in edges_seen:
                 edges_seen.add(key)
                 edges.append(Edge(u=u, v=v, relation=rel, certainty=cert, chunk_id=cid))
-            if u not in visited_nodes and len(nodes) < max_nodes:
-                visited_nodes.add(u)
-                nodes.append(u)
-                next_frontier.append(u)
 
         frontier = next_frontier
 

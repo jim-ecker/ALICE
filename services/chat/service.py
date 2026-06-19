@@ -126,6 +126,8 @@ class Chat:
             hop_depth=self._chat_cfg.entity_hop_depth,
             max_hop2_entities=self._chat_cfg.max_hop2_entities,
             sheaf_harmonic=self._chat_cfg.sheaf_harmonic,
+            path_retrieval=self._chat_cfg.path_retrieval,
+            max_trust_paths=self._chat_cfg.max_trust_paths,
         )
 
         return ServiceState(
@@ -405,6 +407,15 @@ class Chat:
 
     def serve(self, host: str | None = None, port: int | None = None) -> None:
         """Start the uvicorn server (blocking)."""
+        import logging
+        _handler = logging.StreamHandler()
+        _handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s: %(message)s"))
+        for _ns in ("services", "core"):
+            _lg = logging.getLogger(_ns)
+            _lg.setLevel(logging.INFO)
+            _lg.addHandler(_handler)
+            _lg.propagate = False
+
         app = self.create_app()
         uvicorn.run(
             app,

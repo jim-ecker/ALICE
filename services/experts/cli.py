@@ -37,10 +37,12 @@ def _interactive_tui() -> None:
     import questionary
     from services.chat.config import load_chat_config
     from services.experts.manager import ExpertRegistry
+    from services.ingest.config import load_ingest_llm_config
 
-    chat_cfg, embed_cfg, _, llm_cfg = load_chat_config()
+    chat_cfg, embed_cfg, _, chat_llm_cfg = load_chat_config()
     experts_dir = chat_cfg.experts_dir
     registry = ExpertRegistry(experts_dir)
+    llm_cfg = load_ingest_llm_config(Path(experts_dir)) or chat_llm_cfg
 
     while True:
         rprint(Panel("[bold blue]ALICE Expert Manager[/bold blue]", expand=False))
@@ -315,24 +317,41 @@ def _run_ingest_folder_for_expert(meta, folder: "Path", registry, experts_dir, e
         f for f in all_files
         if f.suffix.lower() not in _EXCEL_EXTS and (not all_meta[f].get("title") or not all_meta[f].get("authors"))
     ]
+    skip_metadata = False
     if needs_inference:
-        rprint(f"[dim]{len(needs_inference)} document(s) with missing metadata — running LLM inference...[/dim]")
-        from core.llm.factory import create_backend
-        llm = create_backend(llm_cfg)
-        for f in needs_inference:
-            all_meta[f] = infer_missing_metadata(all_meta[f], llm)
+        run_inference = questionary.confirm(
+            f"{len(needs_inference)} document(s) have missing metadata. Run LLM inference to fill them in?",
+            default=True,
+        ).ask()
+        if run_inference:
+            rprint(f"[dim]Running LLM inference on {len(needs_inference)} document(s)...[/dim]")
+            from core.llm.factory import create_backend
+            llm = create_backend(llm_cfg)
+            for f in needs_inference:
+                all_meta[f] = infer_missing_metadata(all_meta[f], llm)
+        else:
+            skip_metadata = True
 
     confirmed_docs: list = []
-    for path in all_files:
-        m = all_meta[path]
-        rprint(_Panel(f"[bold]{path.name}[/bold]", expand=False))
-        title = questionary.text("Title:", default=m.get("title") or path.stem).ask()
-        if title is None:
-            rprint("[yellow]Skipping.[/yellow]")
-            continue
-        authors = questionary.text("Authors:", default=m.get("authors", "")).ask() or ""
-        year = questionary.text("Year:", default=m.get("year", "")).ask() or ""
-        confirmed_docs.append((path, {"title": title, "authors": authors, "year": year}))
+    if skip_metadata:
+        for path in all_files:
+            m = all_meta[path]
+            confirmed_docs.append((path, {
+                "title": m.get("title") or path.stem,
+                "authors": m.get("authors", ""),
+                "year": m.get("year", ""),
+            }))
+    else:
+        for path in all_files:
+            m = all_meta[path]
+            rprint(_Panel(f"[bold]{path.name}[/bold]", expand=False))
+            title = questionary.text("Title:", default=m.get("title") or path.stem).ask()
+            if title is None:
+                rprint("[yellow]Skipping.[/yellow]")
+                continue
+            authors = questionary.text("Authors:", default=m.get("authors", "")).ask() or ""
+            year = questionary.text("Year:", default=m.get("year", "")).ask() or ""
+            confirmed_docs.append((path, {"title": title, "authors": authors, "year": year}))
 
     if not confirmed_docs:
         rprint("[yellow]No documents to ingest.[/yellow]")

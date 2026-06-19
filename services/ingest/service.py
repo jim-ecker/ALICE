@@ -28,7 +28,7 @@ def _get_visible_gpu_ids() -> list[int]:
         return []
 
 
-def _get_usable_gpu_ids(min_free_gb: float = 3.0) -> list[int]:
+def _get_usable_gpu_ids(min_free_gb: float = 10.0) -> list[int]:
     """Return physical GPU IDs from CUDA_VISIBLE_DEVICES that have >= min_free_gb free.
 
     Uses nvidia-smi so no CUDA context is created in the main process.
@@ -80,8 +80,10 @@ def _init_chunk_worker(gpu_queue: multiprocessing.Queue) -> None:
     except Exception:
         _worker_gpu_id = None
     if _worker_gpu_id is not None:
-        # Remap "CUDA device 0" inside this process to the assigned physical GPU.
         os.environ["CUDA_VISIBLE_DEVICES"] = str(_worker_gpu_id)
+    else:
+        # No GPU slot available — force CPU so workers don't default to GPU 0.
+        os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 
 def _chunk_document(args: tuple) -> tuple:

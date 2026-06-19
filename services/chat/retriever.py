@@ -40,6 +40,8 @@ class Retriever:
         self._max_trust_paths = max_trust_paths
         self._sheaf_harmonic = sheaf_harmonic
         self._sheaf_cfg = sheaf_cfg if sheaf_cfg is not None else SheafConfig()
+        if self._sheaf_harmonic:
+            logger.info("Sheaf Harmonic Interpolation enabled (stalk_dim=%d, radius=%d)", self._sheaf_cfg.stalk_dim, self._sheaf_cfg.radius)
 
     def retrieve(self, query: str) -> ScoredRetrievalResult:
         """Embed query → top-k chunks (+ entity augmentation) → graph context → scored trust bundles."""
@@ -101,10 +103,13 @@ class Retriever:
                     query, anchors, self._conn, provider, self._sheaf_cfg
                 )
                 seen_aug = set(augmented_ids)
-                augmented_ids = augmented_ids + [
-                    cid for cid in sheaf_result.chunk_ids if cid not in seen_aug
-                ]
+                new_ids = [cid for cid in sheaf_result.chunk_ids if cid not in seen_aug]
+                augmented_ids = augmented_ids + new_ids
                 sheaf_abstain = sheaf_result.abstain
+                logger.info(
+                    "SHI: anchors=%s abstain=%.3f new_chunks=%d total_chunks=%d",
+                    anchors, sheaf_abstain, len(new_ids), len(augmented_ids),
+                )
 
         result = retrieve_context(self._conn, augmented_ids)
 

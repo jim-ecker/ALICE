@@ -217,6 +217,80 @@ def create_app(state, chat, cfg) -> FastAPI:
             index_size=len(state.retriever._index),
         )
 
+    @app.get("/api/debug/tppr")
+    async def debug_tppr(q: str):
+        """Probe TPPR contribution for a query against the live KG."""
+        import math
+        from core.graph.retrieval import _match_anchor_entities, find_entity_chunks, find_trust_paths
+
+        conn = state.retriever._conn
+
+        anchors = _match_anchor_entities(conn, q)
+
+        paths = find_trust_paths(conn, anchors, max_paths=state.retriever._max_trust_paths)
+        all_paths = find_trust_paths(conn, anchors, max_paths=10_000)
+        uncapped_1hop = sum(1 for p in all_paths if len(p.edges) == 1)
+        uncapped_2hop = sum(1 for p in all_paths if len(p.edges) == 2)
+        capped_1hop = sum(1 for p in paths if len(p.edges) == 1)
+        capped_2hop = sum(1 for p in paths if len(p.edges) == 2)
+
+        entity_ids = find_entity_chunks(
+            conn, q,
+            hop_depth=state.retriever._hop_depth,
+            max_hop2_entities=state.retriever._max_hop2_entities,
+        )
+        baseline: set[str] = set(entity_ids)
+
+        tppr_ids: set[str] = set()
+        for path in paths:
+            for cid in path.chunk_ids:
+                tppr_ids.add(cid)
+
+        tppr_only = tppr_ids - baseline
+
+        return {
+            "query": q,
+            "path_retrieval_enabled": state.retriever._path_retrieval,
+            "anchors": anchors,
+            "paths_found": len(paths),
+            "path_breakdown": {
+                "uncapped_total": len(all_paths),
+                "uncapped_1hop": uncapped_1hop,
+                "uncapped_2hop": uncapped_2hop,
+                "capped_1hop": capped_1hop,
+                "capped_2hop": capped_2hop,
+            },
+            "sample_1hop_paths": [
+                {
+                    "anchor": p.anchor,
+                    "trust": round(p.path_trust, 4),
+                    "edges": [
+                        {"relation": rel, "target": tgt, "certainty": round(cert, 4)}
+                        for rel, tgt, cert, _ in p.edges
+                    ],
+                    "chunk_ids": p.chunk_ids,
+                }
+                for p in paths if len(p.edges) == 1
+            ][:5],
+            "sample_2hop_paths": [
+                {
+                    "anchor": p.anchor,
+                    "trust": round(p.path_trust, 4),
+                    "edges": [
+                        {"relation": rel, "target": tgt, "certainty": round(cert, 4)}
+                        for rel, tgt, cert, _ in p.edges
+                    ],
+                    "chunk_ids": p.chunk_ids,
+                }
+                for p in paths if len(p.edges) == 2
+            ][:10],
+            "baseline_chunk_count": len(baseline),
+            "tppr_chunk_count": len(tppr_ids),
+            "tppr_overlap_count": len(tppr_ids & baseline),
+            "tppr_new_count": len(tppr_only),
+            "tppr_new_chunk_ids": list(tppr_only)[:20],
+        }
+
     @app.get("/api/conversations", response_model=ListConversationsResponse)
     async def list_conversations(owner: str = Depends(get_current_user)):
         convs = state.chat_store.list_conversations(owner=owner)

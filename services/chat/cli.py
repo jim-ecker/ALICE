@@ -4,9 +4,12 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.table import Table
 from services.chat.paths import resolve_chat_db_path
+
+load_dotenv()
 
 chat_app = typer.Typer(help="ALICE chat service")
 

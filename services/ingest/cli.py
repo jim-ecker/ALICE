@@ -1,8 +1,11 @@
 from pathlib import Path
 
 import typer
+from dotenv import load_dotenv
 from rich import print as rprint
 from rich.table import Table
+
+load_dotenv()
 
 app = typer.Typer(help="ALICE — Automated Literature Ingestion and Concept Extraction")
 
