@@ -94,6 +94,7 @@ class SendMessageResponse(BaseModel):
     content: str
     citations: list[Citation]
     new_title: str
+    abstain: float = 0.0
 
 
 class ExpertItem(BaseModel):
@@ -153,6 +154,10 @@ def create_app(state, chat, cfg) -> FastAPI:
     @app.get("/experiment", response_class=HTMLResponse)
     async def experiment_ui():
         return HTMLResponse(content=EXPERIMENT_HTML)
+
+    @app.get("/api/me")
+    async def get_me(owner: str = Depends(get_current_user)):
+        return {"email": owner}
 
     @app.get("/api/status", response_model=StatusResponse)
     async def get_status():
@@ -320,6 +325,7 @@ def create_app(state, chat, cfg) -> FastAPI:
             content=answer,
             citations=citations,
             new_title=new_title,
+            abstain=retrieval.abstain,
         )
 
     # ── Expert endpoints ─────────────────────────────────────────────────────

@@ -1,9 +1,47 @@
 {
   "agents": [
     {
+      "agent_id": "ve_b_danette_allen",
+      "label": "B. Danette Allen",
+      "class": "virtual_expert",
+      "expert_slug": "b_danette_allen"
+    },
+    {
+      "agent_id": "ve_natalia_alexandrov",
+      "label": "Natalia Alexandrov",
+      "class": "virtual_expert",
+      "expert_slug": "natalia_alexandrov"
+    },
+    {
       "agent_id": "generic_llm",
       "label": "Generic AI Assistant",
       "class": "generic_llm"
+    },
+    {
+      "agent_id": "chatgpt",
+      "label": "ChatGPT (GPT-4o)",
+      "class": "commercial_llm",
+      "provider": "openai",
+      "model": "gpt-4o",
+      "base_url": "https://api.openai.com/v1",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    {
+      "agent_id": "claude_ai",
+      "label": "Claude (Sonnet)",
+      "class": "commercial_llm",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    {
+      "agent_id": "gemini",
+      "label": "Gemini (2.5 Flash)",
+      "class": "commercial_llm",
+      "provider": "gemini",
+      "model": "gemini-2.5-flash",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "api_key_env": "GEMINI_API_KEY"
     }
   ]
 }

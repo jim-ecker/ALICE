@@ -53,5 +53,10 @@ ingest-folder/
 # Local machine config (copy alice.toml.example → alice.toml and edit)
 alice.toml
 
+# API keys and secrets
+.env
+.env.*
+
 # Deploy
 deploy/
+experiments/data/

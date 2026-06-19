@@ -1,41 +1,55 @@
 {
-  "question_set_id": "alice_eval_v1",
+  "question_set_id": "alice_virtual_expert_audit_v1",
   "questions": [
     {
       "q_id": "Q1",
-      "canonical": "What are the primary research contributions and technical innovations in this expert's published work?"
+      "category": "Domain Knowledge",
+      "canonical": "What are the primary technical challenges in certifying autonomous systems for aerospace applications?"
     },
     {
       "q_id": "Q2",
-      "canonical": "What open problems or future directions does this expert identify in their research?"
+      "category": "Cross-Domain Integration",
+      "canonical": "How does computational design optimization relate to autonomous system verification?"
     },
     {
       "q_id": "Q3",
-      "canonical": "How does this expert's work address challenges in autonomous systems or aerospace applications?"
+      "category": "Historical Context",
+      "canonical": "Describe the evolution of your research area over the past decade and your contributions to it."
     },
     {
       "q_id": "Q4",
-      "canonical": "What methodologies or experimental approaches does this expert use in their research?"
+      "category": "Practical Application",
+      "canonical": "What specific methods from your publications could be applied to urban air mobility vehicles?"
     },
     {
       "q_id": "Q5",
-      "canonical": "What collaborations or interdisciplinary connections appear in this expert's work?"
+      "category": "Technical Detail",
+      "canonical": "Explain the mathematical foundations behind one of your key research contributions."
     },
     {
       "q_id": "Q6",
-      "canonical": "What are the key findings or results from this expert's most impactful publications?"
+      "category": "Collaboration Query",
+      "canonical": "Which of your co-authors' work complements yours in addressing system reliability?"
     },
     {
       "q_id": "Q7",
-      "canonical": "How does this expert's research relate to current state-of-the-art in their field?"
+      "category": "Comparative Analysis",
+      "canonical": "What distinguishes your approach to autonomy and optimization from alternative methodologies?"
     },
     {
       "q_id": "Q8",
-      "canonical": "What safety, reliability, or validation concerns does this expert address in their work?"
+      "category": "Future Direction",
+      "canonical": "Based on your research trajectory, what are the next critical problems to solve in your field?"
     },
     {
       "q_id": "Q9",
-      "canonical": "Describe the expert's perspective on the current limitations of their research area."
+      "category": "Limitation Acknowledgment",
+      "canonical": "What aspects of autonomous systems fall outside your expertise, and who would you recommend consulting?"
+    },
+    {
+      "q_id": "Q10",
+      "category": "Synthesis Challenge",
+      "canonical": "How would you integrate formal methods with machine learning for aerospace safety certification?"
     }
   ]
 }

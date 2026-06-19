@@ -163,6 +163,7 @@ CHAT_HTML = r"""<!DOCTYPE html>
   .doc-link { color: inherit; text-decoration: underline; text-decoration-color: var(--border); }
   .doc-link:hover { text-decoration-color: var(--accent); color: var(--accent); }
   .msg-walltime { font-size: 10px; color: var(--text2); opacity: 0.5; text-align: right; margin-top: 6px; }
+  .abstain-warning { background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 8px 12px; margin-bottom: 10px; font-size: 12px; color: #856404; }
   .triple-row .entity { color: var(--accent2); font-weight: 600; }
   .triple-row .relation { color: var(--yellow); }
   /* Trust score bar row */
@@ -536,7 +537,7 @@ function renderMessages(messages) {
   }
 }
 
-function buildMsgEl(role, content, citations, walltime = null) {
+function buildMsgEl(role, content, citations, walltime = null, abstain = 0.0) {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   const avatarImg = role === 'user'
@@ -544,8 +545,11 @@ function buildMsgEl(role, content, citations, walltime = null) {
     : '<img src="/static/alice.png" alt="ALICE">';
   const walltimeHTML = (role === 'assistant' && walltime != null)
     ? `<div class="msg-walltime">${walltime.toFixed(1)}s</div>` : '';
+  const abstainHTML = (role === 'assistant' && abstain > 0.5)
+    ? `<div class="abstain-warning">⚠ Low context confidence — the knowledge graph may not contain sufficient information to fully support this answer (uncertainty: ${Math.round(abstain * 100)}%)</div>`
+    : '';
   const bubbleContent = role === 'assistant'
-    ? formatMarkdown(content) + buildCitationsHTML(citations) + walltimeHTML
+    ? abstainHTML + formatMarkdown(content) + buildCitationsHTML(citations) + walltimeHTML
     : esc(content).replace(/\n/g, '<br>');
   div.innerHTML = `
     <div class="msg-avatar">${avatarImg}</div>
@@ -723,7 +727,7 @@ async function sendMessage() {
     const d = await r.json();
     const walltime = (Date.now() - t0) / 1000;
     thinkingEl.remove();
-    container.appendChild(buildMsgEl('assistant', d.content, d.citations || [], walltime));
+    container.appendChild(buildMsgEl('assistant', d.content, d.citations || [], walltime, d.abstain || 0.0));
     scrollToBottom();
     // Update sidebar title in-place
     if (d.new_title) {
