@@ -126,24 +126,30 @@ class KuzuStore(GraphStore):
                 self._conn.execute(statement)
             except Exception:
                 pass
-        # Backfill stable fact_id for edges written before this column existed
-        null_result = self._conn.execute(
-            "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) WHERE r.fact_id IS NULL "
-            "RETURN s.name, r.relation, e.name, r.chunk_id"
-        )
-        while null_result.has_next():
-            row = null_result.get_next()
-            subj, rel, obj, cid = row[0], row[1], row[2], row[3]
-            fid = int.from_bytes(
-                hashlib.sha256(f"{subj}\x00{rel}\x00{obj}\x00{cid}".encode()).digest()[:8],
-                'big',
-            ) & 0x7FFFFFFFFFFFFFFF
-            self._conn.execute(
-                "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) "
-                "WHERE s.name=$s AND e.name=$e AND r.relation=$rel AND r.chunk_id=$cid "
-                "SET r.fact_id=$fid",
-                parameters={"s": subj, "e": obj, "rel": rel, "cid": cid, "fid": fid},
+        # Backfill stable fact_id for edges written before this column existed.
+        # Wrapped in try/except so a write conflict with a concurrent ingest doesn't
+        # crash startup — un-backfilled edges will fall back to enumerate index and
+        # retry on next restart.
+        try:
+            null_result = self._conn.execute(
+                "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) WHERE r.fact_id IS NULL "
+                "RETURN s.name, r.relation, e.name, r.chunk_id"
             )
+            while null_result.has_next():
+                row = null_result.get_next()
+                subj, rel, obj, cid = row[0], row[1], row[2], row[3]
+                fid = int.from_bytes(
+                    hashlib.sha256(f"{subj}\x00{rel}\x00{obj}\x00{cid}".encode()).digest()[:8],
+                    'big',
+                ) & 0x7FFFFFFFFFFFFFFF
+                self._conn.execute(
+                    "MATCH (s:Entity)-[r:RELATES_TO]->(e:Entity) "
+                    "WHERE s.name=$s AND e.name=$e AND r.relation=$rel AND r.chunk_id=$cid "
+                    "SET r.fact_id=$fid",
+                    parameters={"s": subj, "e": obj, "rel": rel, "cid": cid, "fid": fid},
+                )
+        except Exception:
+            pass
         # Backfill extracted_at for chunks that already have triples so they aren't re-processed
         self._conn.execute(
             """
