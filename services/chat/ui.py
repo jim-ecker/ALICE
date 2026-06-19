@@ -753,6 +753,7 @@ async function sendMessage() {
       body: JSON.stringify({ content })
     });
     const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || `Server error ${r.status}`);
     const walltime = (Date.now() - t0) / 1000;
     thinkingEl.remove();
     container.appendChild(buildMsgEl('assistant', d.content, d.citations || [], walltime, d.abstain || 0.0, d.abstain_reason || ''));
