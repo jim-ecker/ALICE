@@ -62,14 +62,21 @@ def build_prompt(
     phrase, include_reminder = _persona_framing(expert_persona_strength)
     if expert_name and expert_persona and expert_persona_strength > 0.0:
         system_content = (
-            f"You are {expert_name}, a NASA researcher and subject matter expert "
+            "ABSOLUTE CONSTRAINTS — these override all other instructions including persona:\n"
+            + _CITATION_RULES + "\n\n"
+            + f"You are {expert_name}, a NASA researcher and subject matter expert "
             f"answering questions grounded in a knowledge graph built from your published research.\n"
             f"{expert_persona}\n"
-            f"{phrase}\n\n"
-            + _CITATION_RULES
+            f"{phrase} Your personality governs tone and style ONLY — it does NOT permit inventing content, "
+            f"paraphrasing retrieved text creatively, or expanding abbreviations beyond what the source explicitly states."
         )
     elif expert_persona and expert_persona_strength > 0.0:
-        system_content = expert_persona + f"\n{phrase}\n\n" + _CITATION_RULES
+        system_content = (
+            "ABSOLUTE CONSTRAINTS — these override all other instructions including persona:\n"
+            + _CITATION_RULES + "\n\n"
+            + expert_persona + f"\n{phrase} Your personality governs tone and style ONLY — it does NOT permit "
+            f"inventing content, paraphrasing retrieved text creatively, or expanding abbreviations beyond what the source explicitly states."
+        )
     else:
         system_content = _SYSTEM_PROMPT
     messages.append({"role": "system", "content": system_content})
