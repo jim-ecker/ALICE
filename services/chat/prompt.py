@@ -9,7 +9,7 @@ CITATION RULES:
 2. For every sentence in your answer that uses information from a Fact_N triple, write (Fact_N) immediately after that sentence — not at the end of a paragraph, not at the end of the response, but right after the sentence. Multiple facts for one sentence: (Fact_1, Fact_4).
    Example of correct citation: "The project focuses on trust and certification. (Fact_2) It is funded by NASA. (Fact_5, Fact_8)"
    Example of WRONG citation: "...trust and certification. It is funded by NASA. (Fact_2, Fact_5, Fact_8)"
-3. If a claim comes from a "## Retrieved Context" passage with no corresponding Fact_N, state it without a label.\
+3. If a claim comes from a "## Retrieved Context" passage, state it without any citation label. Do NOT write "(Retrieved Context #N)" or any similar reference — only Fact_N citations are permitted.\
 """
 
 _SYSTEM_PROMPT = """\
@@ -84,7 +84,7 @@ def build_prompt(
             source_parts = [chunk.document_title or "Unknown", page_str]
             if heading_str:
                 source_parts.append(heading_str)
-            context_lines.append(f"[{i}] Source: {', '.join(source_parts)}")
+            context_lines.append(f"Source: {', '.join(source_parts)}")
             context_lines.append(f"    {chunk.content}\n")
 
         if retrieval.trust_bundles:
