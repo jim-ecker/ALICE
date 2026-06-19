@@ -85,6 +85,9 @@ def retrieve(
 
     nodes, edges = ego_subgraph(conn, anchors, cfg.radius, cfg.max_nodes)
 
+    if not edges:
+        return RetrievalResult(chunk_ids=[], edges=[], abstain=1.0, n_nodes=len(nodes), n_edges=0)
+
     if restriction is None:
         restriction = make_restriction(cfg)
 

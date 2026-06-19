@@ -473,11 +473,9 @@ def create_app(state, chat, cfg) -> FastAPI:
                     "role": "system",
                     "content": (
                         "You are a diagnostic assistant for a knowledge graph retrieval system. "
-                        "In one concise sentence (20–35 words), explain why the retrieved facts "
-                        "do not specifically address the user's question — identify what is "
-                        "missing, too generic, or structurally disconnected. "
-                        "Do not repeat the question. Do not say 'the knowledge graph'. "
-                        "Start with what is absent or too vague."
+                        "Explain why the retrieved facts do not specifically address the user's "
+                        "question — identify what is missing, too generic, or structurally "
+                        "disconnected. Do not repeat the question. Do not say 'the knowledge graph'."
                     ),
                 },
                 {

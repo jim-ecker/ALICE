@@ -33,6 +33,18 @@ def harmonic_extend(
     xb = np.concatenate([x_B[bn] for bn in boundary])
 
     rhs = -(L_UB @ xb)
+
+    # Early exit: if boundary barely couples into interior the Schur correction is
+    # negligible and we can skip the expensive multi-RHS spsolve.
+    xb_norm = float(np.linalg.norm(xb))
+    rhs_norm = float(np.linalg.norm(rhs))
+    if xb_norm > 0 and rhs_norm / xb_norm < cfg.early_exit_coupling:
+        x = np.zeros(size)
+        x[B] = xb
+        dirichlet_energy = float(x @ (L @ x))
+        abstain_energy = float(xb @ L_BB @ xb)  # ≈ xb^T S xb when coupling ~ 0
+        return x, dirichlet_energy, abstain_energy
+
     if cfg.solver == "cg":
         xU, _info = scipy.sparse.linalg.cg(L_UU.tocsr(), rhs, rtol=1e-10, atol=0.0)
     else:

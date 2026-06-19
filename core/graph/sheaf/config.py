@@ -12,3 +12,4 @@ class SheafConfig:
     restriction: str = "identity"  # "identity" | "diagonal" | "typed" | "orthogonal"
     abstain_threshold: float = 0.5
     solver: str = "cg"  # "cg" | "spsolve"
+    early_exit_coupling: float = 1e-3  # bail before Schur solve if rhs_norm/xb_norm < this
