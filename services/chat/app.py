@@ -95,6 +95,7 @@ class SendMessageResponse(BaseModel):
     citations: list[Citation]
     new_title: str
     abstain: float = 0.0
+    abstain_reason: str = ""
 
 
 class ExpertItem(BaseModel):
@@ -438,7 +439,7 @@ def create_app(state, chat, cfg) -> FastAPI:
             conv_id, "assistant", answer, citation_chunk_ids, citations_json
         )
 
-        # 9. Generate and persist a short conversation title
+        # 7a. Build post-answer LLM tasks (title + optional abstain reason) and run in parallel
         _title_messages = [
             {
                 "role": "system",
@@ -452,11 +453,46 @@ def create_app(state, chat, cfg) -> FastAPI:
                 "content": f"User asked: {req.content}\n\nAssistant answered: {answer[:400]}",
             },
         ]
-        try:
-            raw_title: str = await asyncio.to_thread(state.llm.chat, _title_messages, 512)
-            new_title = _sanitize_title(raw_title, _fallback_title_from_query(req.content))
-        except Exception:
-            new_title = _fallback_title_from_query(req.content)
+
+        async def _gen_title() -> str:
+            try:
+                raw = await asyncio.to_thread(state.llm.chat, _title_messages, 512)
+                return _sanitize_title(raw, _fallback_title_from_query(req.content))
+            except Exception:
+                return _fallback_title_from_query(req.content)
+
+        async def _gen_abstain_reason() -> str:
+            if retrieval.abstain < 0.5:
+                return ""
+            _triple_summary = "; ".join(
+                f"{b.triple.subject} {b.triple.relation} {b.triple.object_}"
+                for b in retrieval.trust_bundles[:12]
+            ) or "no facts retrieved"
+            _msgs = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a diagnostic assistant for a knowledge graph retrieval system. "
+                        "In one concise sentence (20–35 words), explain why the retrieved facts "
+                        "do not specifically address the user's question — identify what is "
+                        "missing, too generic, or structurally disconnected. "
+                        "Do not repeat the question. Do not say 'the knowledge graph'. "
+                        "Start with what is absent or too vague."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f"Question: {req.content}\n\nRetrieved facts: {_triple_summary}",
+                },
+            ]
+            try:
+                raw = await asyncio.to_thread(state.llm.chat, _msgs, 60)
+                return _clean_model_text(raw).strip()
+            except Exception:
+                return ""
+
+        # 8. Run title + abstain reason in parallel
+        new_title, abstain_reason = await asyncio.gather(_gen_title(), _gen_abstain_reason())
         state.chat_store.update_conversation_title(conv_id, new_title, owner=owner)
 
         return SendMessageResponse(
@@ -465,6 +501,7 @@ def create_app(state, chat, cfg) -> FastAPI:
             citations=citations,
             new_title=new_title,
             abstain=retrieval.abstain,
+            abstain_reason=abstain_reason,
         )
 
     # ── Expert endpoints ─────────────────────────────────────────────────────

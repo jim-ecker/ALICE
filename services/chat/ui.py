@@ -553,7 +553,7 @@ function renderMessages(messages) {
   }
 }
 
-function buildMsgEl(role, content, citations, walltime = null, abstain = 0.0) {
+function buildMsgEl(role, content, citations, walltime = null, abstain = 0.0, abstainReason = '') {
   const div = document.createElement('div');
   div.className = `msg ${role}`;
   const avatarImg = role === 'user'
@@ -561,9 +561,11 @@ function buildMsgEl(role, content, citations, walltime = null, abstain = 0.0) {
     : '<img src="/static/alice.png" alt="ALICE">';
   const walltimeHTML = (role === 'assistant' && walltime != null)
     ? `<div class="msg-walltime">${walltime.toFixed(1)}s</div>` : '';
-  const abstainHTML = (role === 'assistant' && abstain > 0.5)
-    ? `<div class="abstain-warning">⚠ Low context confidence — the knowledge graph may not contain sufficient information to fully support this answer (uncertainty: ${Math.round(abstain * 100)}%)</div>`
-    : '';
+  let abstainHTML = '';
+  if (role === 'assistant' && abstain > 0.5) {
+    const reason = abstainReason ? esc(abstainReason) : 'The retrieved facts may be too generic or sparse to fully support this answer.';
+    abstainHTML = `<div class="abstain-warning">⚠ Low context confidence — ${reason} (uncertainty: ${Math.round(abstain * 100)}%)</div>`;
+  }
   const bubbleContent = role === 'assistant'
     ? abstainHTML + formatMarkdown(content) + buildCitationsHTML(citations) + walltimeHTML
     : esc(content).replace(/\n/g, '<br>');
@@ -743,7 +745,7 @@ async function sendMessage() {
     const d = await r.json();
     const walltime = (Date.now() - t0) / 1000;
     thinkingEl.remove();
-    container.appendChild(buildMsgEl('assistant', d.content, d.citations || [], walltime, d.abstain || 0.0));
+    container.appendChild(buildMsgEl('assistant', d.content, d.citations || [], walltime, d.abstain || 0.0, d.abstain_reason || ''));
     scrollToBottom();
     // Update sidebar title in-place
     if (d.new_title) {

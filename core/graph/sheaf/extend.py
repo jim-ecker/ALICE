@@ -57,6 +57,6 @@ def harmonic_extend(
 def schur_abstention(
     abstain_energy: float, x_B: dict[str, np.ndarray], eps: float = 1e-12
 ) -> float:
-    """abstain_energy / (sum of ||x_b||^2 + eps)."""
+    """abstain_energy / (sum of ||x_b||^2 + eps), clamped to [0, 1]."""
     norm_sq = sum(float(v @ v) for v in x_B.values())
-    return abstain_energy / (norm_sq + eps)
+    return min(1.0, abstain_energy / (norm_sq + eps))
