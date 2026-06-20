@@ -24,22 +24,52 @@ You are ALICE, an AI research assistant. Answer the question in a natural, narra
 """
 
 
-def _persona_framing(strength: float) -> tuple[str, bool]:
-    """Return (instruction_phrase, include_query_reminder) for a given strength.
-
-    instruction_phrase is appended after the persona text in the system prompt.
-    include_query_reminder controls whether the per-query persona nudge is added.
-    """
+def _persona_expression_block(strength: float) -> str:
+    """Return behavioral guidance for how to express the persona at a given strength."""
     if strength <= 0.0:
-        return "", False
-    elif strength <= 0.30:
-        return "Let this subtly inform your tone.", False
-    elif strength <= 0.60:
-        return "Let this come through in your tone and word choice.", True
-    elif strength <= 0.90:
-        return "Let this come through strongly in your tone and word choice.", True
-    else:
-        return "Fully embody this persona in every response.", True
+        return ""
+    if strength <= 0.30:
+        return (
+            "PERSONA EXPRESSION:\n"
+            "Let your personality subtly color your word choice and phrasing — "
+            "a slight tilt in register is enough."
+        )
+    if strength <= 0.60:
+        return (
+            "PERSONA EXPRESSION — bring your voice through:\n"
+            "- Open with how YOU would frame this, not a generic preamble\n"
+            "- Use your characteristic analogies or references when they genuinely clarify\n"
+            "- Let your humor or directness show in transitions and asides\n"
+            "The WHAT (facts, citations) must stay grounded; the HOW is yours."
+        )
+    if strength <= 0.90:
+        return (
+            "PERSONA EXPRESSION — let your voice come through strongly:\n"
+            "- Your opening should sound unmistakably like you — skip generic throat-clearing\n"
+            "- Reach for your characteristic analogies, references, or framings when they genuinely illuminate\n"
+            "- Let your humor, directness, or rhetorical style show in transitions, asides, and closings\n"
+            "- Vary sentence rhythm and register the way you naturally would\n"
+            "The WHAT (facts, citations) must stay grounded; the HOW is entirely yours."
+        )
+    return (
+        "PERSONA EXPRESSION — fully own your voice:\n"
+        "- Sound like yourself from the first word — no generic openings\n"
+        "- Draw on your characteristic analogies, cultural references, or framings freely when they clarify\n"
+        "- Let your personality live in every transition, aside, and closing — not just set-pieces\n"
+        "- Use your natural sentence rhythm, register, and humor without suppressing them\n"
+        "- If you'd normally make a dry observation, a pointed aside, or an unexpected comparison — do it\n"
+        "The WHAT (facts, citations) must stay grounded; the HOW is entirely and unmistakably yours."
+    )
+
+
+def _persona_query_nudge(expert_name: str, strength: float) -> str:
+    """Return a per-query generation nudge for expert mode."""
+    if strength <= 0.30:
+        return ""
+    return (
+        f"[Before you write: take one beat to consider how {expert_name} would specifically open this response. "
+        f"What framing, analogy, or observation would they reach for first? Then write from that place.]"
+    )
 
 
 def build_prompt(
@@ -66,34 +96,42 @@ def build_prompt(
     fact_index_to_chunk_id: dict[str, str] = {}
 
     # 1. System message
-    phrase, include_reminder = _persona_framing(expert_persona_strength)
     if narrative_mode:
         if expert_name and expert_persona and expert_persona_strength > 0.0:
+            expr = _persona_expression_block(expert_persona_strength)
             system_content = (
                 f"You are {expert_name}, a NASA researcher and subject matter expert "
-                f"answering questions based on your published research. "
-                f"{expert_persona}\n"
-                f"{phrase} Answer in a natural, narrative style. "
+                f"answering questions based on your published research.\n\n"
+                f"PERSONA:\n{expert_persona}\n\n"
+                f"{expr}\n\n"
+                f"Answer in a natural, narrative style. "
                 f"Do not include citation markers or source references in your answer."
             )
         else:
             system_content = _NARRATIVE_SYSTEM_PROMPT
     elif expert_name and expert_persona and expert_persona_strength > 0.0:
+        expr = _persona_expression_block(expert_persona_strength)
         system_content = (
             "ABSOLUTE CONSTRAINTS — these override all other instructions including persona:\n"
             + _CITATION_RULES + "\n\n"
-            + f"You are {expert_name}, a NASA researcher and subject matter expert "
+            + f"PERSONA — who you are:\n"
+            f"You are {expert_name}, a NASA researcher and subject matter expert "
             f"answering questions grounded in a knowledge graph built from your published research.\n"
-            f"{expert_persona}\n"
-            f"{phrase} Your personality governs tone and style ONLY — it does NOT permit inventing content, "
-            f"paraphrasing retrieved text creatively, or expanding abbreviations beyond what the source explicitly states."
+            f"{expert_persona}\n\n"
+            + expr + "\n\n"
+            + "The ABSOLUTE CONSTRAINTS above govern what you may claim; "
+            "your persona governs how you express it. These do not conflict — "
+            "a grounded answer can still be unmistakably yours."
         )
     elif expert_persona and expert_persona_strength > 0.0:
+        expr = _persona_expression_block(expert_persona_strength)
         system_content = (
             "ABSOLUTE CONSTRAINTS — these override all other instructions including persona:\n"
             + _CITATION_RULES + "\n\n"
-            + expert_persona + f"\n{phrase} Your personality governs tone and style ONLY — it does NOT permit "
-            f"inventing content, paraphrasing retrieved text creatively, or expanding abbreviations beyond what the source explicitly states."
+            + f"PERSONA:\n{expert_persona}\n\n"
+            + expr + "\n\n"
+            + "The ABSOLUTE CONSTRAINTS above govern what you may claim; "
+            "your persona governs how you express it."
         )
     else:
         system_content = _SYSTEM_PROMPT
@@ -153,10 +191,7 @@ def build_prompt(
             )
         messages.append({"role": "user", "content": "\n".join(context_lines)})
         if not narrative_mode:
-            if expert_name:
-                prefill = "Got it. I'll draw on those facts and cite them inline as (Fact_N) after each sentence that uses one."
-            else:
-                prefill = "Understood. I will answer from the retrieved context and cite each Fact_N inline immediately after the sentence that uses it."
+            prefill = "Understood. I will cite each Fact_N inline immediately after the sentence that uses it."
             messages.append({"role": "assistant", "content": prefill})
 
     # 3. Recent conversation history (last N turns = 2*N messages)
@@ -164,12 +199,10 @@ def build_prompt(
     for msg in recent:
         messages.append({"role": msg.role, "content": msg.content})
 
-    # 4. Current query (with persona reminder injected at generation point for expert mode)
-    if expert_name and expert_persona and include_reminder:
-        query_content = (
-            f"[Persona reminder: You are {expert_name}. {expert_persona} "
-            f"{phrase}]\n\n{query}"
-        )
+    # 4. Current query (with persona nudge injected at generation point for expert mode)
+    if expert_name and expert_persona and expert_persona_strength > 0.30:
+        nudge = _persona_query_nudge(expert_name, expert_persona_strength)
+        query_content = f"{nudge}\n\n{query}" if nudge else query
     else:
         query_content = query
     messages.append({"role": "user", "content": query_content})

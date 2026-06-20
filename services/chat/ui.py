@@ -295,6 +295,7 @@ let activeConvId = null;
 let sending = false;
 let activeExpertSlug = null;
 let switchingExpert = null;  // slug currently being loaded, or null
+let isUnloading = false;     // true while switching back to the general chat KG
 
 // Utility
 const $  = id => document.getElementById(id);
@@ -460,14 +461,31 @@ async function switchExpert(slug) {
 }
 
 async function unloadExpert() {
+  if (isUnloading) return;
+  isUnloading = true;
+  $('send-btn').disabled = true;
+  $('msg-input').disabled = true;
   try {
-    await fetch(`${API}/api/experts/unload`, { method: 'POST' });
+    const r = await fetch(`${API}/api/experts/unload`, { method: 'POST' });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      alert('Failed to switch to chat: ' + (d.detail || r.statusText));
+      setMode('retention');  // revert UI — server is still in expert mode
+      return;
+    }
     activeExpertSlug = null;
+    activeConvId = null;
+    $('messages').innerHTML = '<div id="empty-state"><div class="icon"><img src="/static/nasa.png" alt="ALICE"></div><h2>ALICE Research Assistant</h2><p>Ask a question to start a new conversation.</p></div>';
     await loadExperts();
     await loadConversations();
     await loadStatus();
   } catch (e) {
     alert('Unload failed: ' + e);
+    setMode('retention');
+  } finally {
+    isUnloading = false;
+    $('send-btn').disabled = false;
+    $('msg-input').disabled = false;
   }
 }
 
@@ -707,7 +725,7 @@ function titleFromQuery(q) {
 }
 
 async function sendMessage() {
-  if (sending) return;
+  if (sending || isUnloading) return;
   const input = $('msg-input');
   const content = input.value.trim();
   if (!content) return;
