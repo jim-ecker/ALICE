@@ -68,7 +68,7 @@ _BUFFER_POOL_SIZE = 2 * 1024 ** 3  # 2 GB — fixed cap so Kuzu doesn't claim 80
 
 
 class KuzuStore(GraphStore):
-    def __init__(self, db_path: "str | Path | kuzu.Database"):
+    def __init__(self, db_path: "str | Path | kuzu.Database", *, read_only: bool = False):
         if isinstance(db_path, kuzu.Database):
             self._db = db_path
             self._owns_db = False
@@ -76,15 +76,16 @@ class KuzuStore(GraphStore):
             self._db = kuzu.Database(str(db_path), buffer_pool_size=_BUFFER_POOL_SIZE)
             self._owns_db = True
         self._conn = kuzu.Connection(self._db)
-        try:
-            self._init_schema()
-        except RuntimeError as exc:
-            if "Cannot read from file" in str(exc):
-                raise RuntimeError(
-                    "Database is corrupted (likely from a previous crash). "
-                    "Run `alice chat reset` to delete it and start fresh."
-                ) from exc
-            raise
+        if not read_only:
+            try:
+                self._init_schema()
+            except RuntimeError as exc:
+                if "Cannot read from file" in str(exc):
+                    raise RuntimeError(
+                        "Database is corrupted (likely from a previous crash). "
+                        "Run `alice chat reset` to delete it and start fresh."
+                    ) from exc
+                raise
 
     def close(self) -> None:
         self._conn.close()

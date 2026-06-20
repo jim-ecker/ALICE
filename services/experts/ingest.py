@@ -4,6 +4,7 @@ from pathlib import Path
 
 from services.experts.manager import ExpertMeta
 from services.experts.paths import build_expert_paths
+from services.ingest.service import safe_db as _safe_db
 
 _ALL_EXTS = ("pdf", "pptx", "docx", "html", "htm", "md", "adoc", "xlsx", "xls")
 
@@ -42,18 +43,19 @@ def ingest_for_expert(
         embeddings_path=paths.embeddings_path,
         downloads_dir=paths.downloads_dir,
     )
-    result, _ = ingest_svc.run(
-        "*",
-        author=author,
-        max_docs=meta.max_docs,
-        on_search_complete=on_search_complete,
-        on_download=on_download,
-        on_download_failed=on_download_failed,
-        on_downloads_complete=on_downloads_complete,
-        on_chunk=on_chunk,
-        on_extract_start=on_extract_start,
-        on_chunk_extracted=on_chunk_extracted,
-    )
+    with _safe_db(paths.db_path):
+        result, _ = ingest_svc.run(
+            "*",
+            author=author,
+            max_docs=meta.max_docs,
+            on_search_complete=on_search_complete,
+            on_download=on_download,
+            on_download_failed=on_download_failed,
+            on_downloads_complete=on_downloads_complete,
+            on_chunk=on_chunk,
+            on_extract_start=on_extract_start,
+            on_chunk_extracted=on_chunk_extracted,
+        )
     return result
 
 
@@ -86,10 +88,11 @@ def ingest_folder_for_expert(
         embed_client=embed_client,
         embeddings_path=paths.embeddings_path,
     )
-    result, _ = ingest_svc.ingest_local_files(
-        confirmed_docs,
-        on_chunk=on_chunk,
-        on_extract_start=on_extract_start,
-        on_chunk_extracted=on_chunk_extracted,
-    )
+    with _safe_db(paths.db_path):
+        result, _ = ingest_svc.ingest_local_files(
+            confirmed_docs,
+            on_chunk=on_chunk,
+            on_extract_start=on_extract_start,
+            on_chunk_extracted=on_chunk_extracted,
+        )
     return result

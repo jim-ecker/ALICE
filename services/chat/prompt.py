@@ -19,6 +19,10 @@ You are ALICE, an AI research assistant grounded exclusively in a knowledge grap
 
 """ + _CITATION_RULES
 
+_NARRATIVE_SYSTEM_PROMPT = """\
+You are ALICE, an AI research assistant. Answer the question in a natural, narrative style using only the information in the provided context. Do not include citation markers or source references in your answer.\
+"""
+
 
 def _persona_framing(strength: float) -> tuple[str, bool]:
     """Return (instruction_phrase, include_query_reminder) for a given strength.
@@ -48,11 +52,14 @@ def build_prompt(
     expert_name: str | None = None,
     expert_persona: str | None = None,
     expert_persona_strength: float = 1.0,
+    narrative_mode: bool = False,
 ) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Build the LLM message list for a chat turn.
 
     Returns (messages, fact_index_to_chunk_id) where fact_index_to_chunk_id maps
     the 1-based Fact_n index used in the prompt to chunk_id.
+
+    narrative_mode=True produces citation-free output for human evaluation contexts.
     """
     messages: list[dict[str, str]] = []
     index_to_chunk_id: dict[int, str] = {}
@@ -60,7 +67,18 @@ def build_prompt(
 
     # 1. System message
     phrase, include_reminder = _persona_framing(expert_persona_strength)
-    if expert_name and expert_persona and expert_persona_strength > 0.0:
+    if narrative_mode:
+        if expert_name and expert_persona and expert_persona_strength > 0.0:
+            system_content = (
+                f"You are {expert_name}, a NASA researcher and subject matter expert "
+                f"answering questions based on your published research. "
+                f"{expert_persona}\n"
+                f"{phrase} Answer in a natural, narrative style. "
+                f"Do not include citation markers or source references in your answer."
+            )
+        else:
+            system_content = _NARRATIVE_SYSTEM_PROMPT
+    elif expert_name and expert_persona and expert_persona_strength > 0.0:
         system_content = (
             "ABSOLUTE CONSTRAINTS — these override all other instructions including persona:\n"
             + _CITATION_RULES + "\n\n"
@@ -97,42 +115,49 @@ def build_prompt(
             context_lines.append(f"    {chunk.content}\n")
 
         if retrieval.trust_bundles:
-            context_lines.append("## Knowledge Graph Facts\n")
-            for enum_idx, bundle in enumerate(retrieval.trust_bundles, start=1):
-                t = bundle.triple
-                raw_id = t.fact_id if t.fact_id is not None else enum_idx
-                short_id = f"{raw_id:016x}"[:6]
-                fact_index_to_chunk_id[short_id] = t.chunk_id
+            if narrative_mode:
+                context_lines.append("## Additional Context\n")
+                for bundle in retrieval.trust_bundles:
+                    t = bundle.triple
+                    context_lines.append(f"{t.subject} {t.relation} {t.object_}.")
+            else:
+                context_lines.append("## Knowledge Graph Facts\n")
+                for enum_idx, bundle in enumerate(retrieval.trust_bundles, start=1):
+                    t = bundle.triple
+                    raw_id = t.fact_id if t.fact_id is not None else enum_idx
+                    short_id = f"{raw_id:016x}"[:6]
+                    fact_index_to_chunk_id[short_id] = t.chunk_id
 
-                # Build trust signal summary
-                signals = [f"composite={bundle.composite_trust:.0%}"]
-                signals.append(f"ingest={bundle.ingest_certainty:.0%}")
-                if bundle.relevance_score is not None:
-                    signals.append(f"rel={bundle.relevance_score:.0%}")
-                if bundle.provenance_count > 1:
-                    signals.append(f"prov={bundle.provenance_count}x")
-                if bundle.grounding_score is not None:
-                    signals.append(f"gnd={bundle.grounding_score:.0%}")
+                    signals = [f"composite={bundle.composite_trust:.0%}"]
+                    signals.append(f"ingest={bundle.ingest_certainty:.0%}")
+                    if bundle.relevance_score is not None:
+                        signals.append(f"rel={bundle.relevance_score:.0%}")
+                    if bundle.provenance_count > 1:
+                        signals.append(f"prov={bundle.provenance_count}x")
+                    if bundle.grounding_score is not None:
+                        signals.append(f"gnd={bundle.grounding_score:.0%}")
 
-                context_lines.append(
-                    f"Fact_{short_id}: {t.subject} ({t.subject_type})"
-                    f" --[{t.relation}]--> "
-                    f"{t.object_} ({t.object_type})"
-                    f"  [{', '.join(signals)}]"
-                )
+                    context_lines.append(
+                        f"Fact_{short_id}: {t.subject} ({t.subject_type})"
+                        f" --[{t.relation}]--> "
+                        f"{t.object_} ({t.object_type})"
+                        f"  [{', '.join(signals)}]"
+                    )
 
-        context_lines.append(
-            "\nCITATION FORMAT — follow this exactly:\n"
-            "Write (Fact_N) immediately after every sentence that uses a Fact_N triple above.\n"
-            "Example: 'The system uses neural networks. (Fact_3) It was developed at Langley. (Fact_7, Fact_9)'\n"
-            "Do NOT group citations at the end of a paragraph. Do NOT omit citations for claims from the facts list."
-        )
+        if not narrative_mode:
+            context_lines.append(
+                "\nCITATION FORMAT — follow this exactly:\n"
+                "Write (Fact_N) immediately after every sentence that uses a Fact_N triple above.\n"
+                "Example: 'The system uses neural networks. (Fact_3) It was developed at Langley. (Fact_7, Fact_9)'\n"
+                "Do NOT group citations at the end of a paragraph. Do NOT omit citations for claims from the facts list."
+            )
         messages.append({"role": "user", "content": "\n".join(context_lines)})
-        if expert_name:
-            prefill = "Got it. I'll draw on those facts and cite them inline as (Fact_N) after each sentence that uses one."
-        else:
-            prefill = "Understood. I will answer from the retrieved context and cite each Fact_N inline immediately after the sentence that uses it."
-        messages.append({"role": "assistant", "content": prefill})
+        if not narrative_mode:
+            if expert_name:
+                prefill = "Got it. I'll draw on those facts and cite them inline as (Fact_N) after each sentence that uses one."
+            else:
+                prefill = "Understood. I will answer from the retrieved context and cite each Fact_N inline immediately after the sentence that uses it."
+            messages.append({"role": "assistant", "content": prefill})
 
     # 3. Recent conversation history (last N turns = 2*N messages)
     recent = history[-(history_turns * 2):] if history else []

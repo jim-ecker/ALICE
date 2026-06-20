@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import shutil
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import logging
 from pathlib import Path
@@ -14,58 +16,77 @@ from core.llm.config import LLMConfig
 LOGGER = logging.getLogger(__name__)
 
 
-def _get_visible_gpu_ids() -> list[int]:
-    """Parse CUDA_VISIBLE_DEVICES into a list of physical GPU IDs.
+@contextmanager
+def safe_db(db_path: Path):
+    """Back up the kuzu DB before ingest; restore it if the ingest fails or is interrupted.
 
-    Returns an empty list when the variable is unset or CUDA is unavailable.
+    Kuzu's buffer pool can leave the DB in an unreadable state if the process
+    is killed mid-write (OOM killer, Ctrl-C, unhandled exception). A pre-ingest
+    backup gives us a clean rollback point.
     """
-    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
-    if not raw or raw in ("NoDeviceFiles", "-1"):
-        return []
+    backup = db_path.with_suffix(".db.bak")
+    if db_path.exists():
+        shutil.copy2(db_path, backup)
     try:
-        return [int(x.strip()) for x in raw.split(",") if x.strip().lstrip("-").isdigit()]
-    except ValueError:
-        return []
+        yield
+        if backup.exists():
+            backup.unlink()
+    except BaseException:
+        if backup.exists():
+            db_path.unlink(missing_ok=True)
+            shutil.move(str(backup), str(db_path))
+        raise
 
 
 def _get_usable_gpu_ids(min_free_gb: float = 10.0) -> list[int]:
-    """Return physical GPU IDs from CUDA_VISIBLE_DEVICES that have >= min_free_gb free.
+    """Return GPU IDs that have >= min_free_gb free VRAM, using nvidia-smi.
 
+    When CUDA_VISIBLE_DEVICES is set, only those GPUs are considered.
+    When it is unset (the common case), all GPUs reported by nvidia-smi are candidates.
     Uses nvidia-smi so no CUDA context is created in the main process.
-    Falls back to all visible IDs if nvidia-smi is unavailable.
     """
     import subprocess
 
-    gpu_ids = _get_visible_gpu_ids()
-    if not gpu_ids:
+    raw = os.environ.get("CUDA_VISIBLE_DEVICES", "")
+    if raw in ("NoDeviceFiles", "-1"):
         return []
+
+    explicit_ids: list[int] | None = None
+    if raw:
+        try:
+            explicit_ids = [int(x.strip()) for x in raw.split(",") if x.strip().lstrip("-").isdigit()]
+        except ValueError:
+            pass
+
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-gpu=index,memory.free", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=10,
         )
         if result.returncode != 0:
-            return gpu_ids
+            return explicit_ids or []
         free_mib: dict[int, int] = {}
         for line in result.stdout.strip().splitlines():
             idx_str, free_str = line.split(",")
             free_mib[int(idx_str.strip())] = int(free_str.strip())
+
+        candidate_ids = explicit_ids if explicit_ids is not None else sorted(free_mib.keys())
         min_mib = int(min_free_gb * 1024)
-        usable = [gid for gid in gpu_ids if free_mib.get(gid, 0) >= min_mib]
+        usable = [gid for gid in candidate_ids if free_mib.get(gid, 0) >= min_mib]
         if not usable:
             print(
-                f"[ingest] Warning: no GPU among {gpu_ids} has >= {min_free_gb} GiB free "
-                f"(free MiB per GPU: {free_mib}). Falling back to all visible GPUs."
+                f"[ingest] Warning: no GPU among {candidate_ids} has >= {min_free_gb} GiB free "
+                f"(free MiB per GPU: {free_mib}). Falling back to all candidates."
             )
-            return gpu_ids
-        skipped = [gid for gid in gpu_ids if gid not in usable]
+            return candidate_ids
+        skipped = [gid for gid in candidate_ids if gid not in usable]
         if skipped:
             print(f"[ingest] Skipping GPU(s) {skipped}: insufficient free memory for docling (< {min_free_gb} GiB).")
         return usable
     except FileNotFoundError:
-        return gpu_ids  # nvidia-smi not available
+        return explicit_ids or []
     except Exception:
-        return gpu_ids
+        return explicit_ids or []
 
 
 # Per-process GPU ID set by the worker initializer.

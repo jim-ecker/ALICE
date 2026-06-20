@@ -305,6 +305,9 @@ def _run_ingest_folder_for_expert(meta, folder: "Path", registry, experts_dir, e
         if path.suffix.lower() in _EXCEL_EXTS:
             from services.ingest.metadata import extract_excel_metadata
             return path, extract_excel_metadata(path)
+        if path.suffix.lower() == ".pptx":
+            from services.ingest.metadata import extract_pptx_metadata
+            return path, extract_pptx_metadata(path)
         return path, extract_pdf_metadata(path)
 
     all_meta = {}
@@ -442,22 +445,29 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
 
     while True:
         rprint(Panel(f"[bold]Managing:[/bold] {meta.name}", expand=False))
-        action = questionary.select(
-            "Action:",
-            choices=[
-                "View details",
-                "Re-ingest (refresh NTRS publications)",
-                "Add local documents",
-                "Refresh expertise areas",
-                "Add alias (ingest under alternate name)",
-                "Edit personality",
-                "Edit personality strength",
-                "Edit allowed users",
-                "Reset database (delete DB + embeddings)",
-                "Delete expert",
-                "Back",
-            ],
-        ).ask()
+        from services.experts.paths import build_expert_paths as _bep
+        _paths = _bep(experts_dir, meta.slug)
+        _backup = _paths.db_path.with_suffix(".db.bak")
+        _restore_label = (
+            f"Restore from backup ({_backup.stat().st_mtime and __import__('datetime').datetime.fromtimestamp(_backup.stat().st_mtime).strftime('%Y-%m-%d %H:%M')})"
+            if _backup.exists() else None
+        )
+        choices = [
+            "View details",
+            "Re-ingest (refresh NTRS publications)",
+            "Add local documents",
+            "Refresh expertise areas",
+            "Add alias (ingest under alternate name)",
+            "Edit personality",
+            "Edit personality strength",
+            "Edit allowed users",
+            "Backup knowledge graph",
+            *([_restore_label] if _restore_label else []),
+            "Reset database (delete DB + embeddings)",
+            "Delete expert",
+            "Back",
+        ]
+        action = questionary.select("Action:", choices=choices).ask()
 
         if action is None or action == "Back":
             break
@@ -539,6 +549,31 @@ def _manage_expert_menu(registry, experts_dir, embed_cfg, llm_cfg) -> None:
                     registry.update(meta.slug, personality_strength=pct / 100)
                     meta = registry.get(meta.slug) or meta
                     rprint(f"[green]Personality strength set to {pct}%.[/green]")
+        elif action == "Backup knowledge graph":
+            from services.experts.paths import build_expert_paths
+            import datetime
+            paths = build_expert_paths(experts_dir, meta.slug)
+            if not paths.db_path.exists():
+                rprint("[yellow]No database to back up.[/yellow]")
+            else:
+                backup = paths.db_path.with_suffix(".db.bak")
+                shutil.copy2(paths.db_path, backup)
+                ts = datetime.datetime.fromtimestamp(backup.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+                rprint(f"[green]Backup created:[/green] {backup.name} ({ts})")
+        elif action is not None and action.startswith("Restore from backup"):
+            from services.experts.paths import build_expert_paths
+            paths = build_expert_paths(experts_dir, meta.slug)
+            backup = paths.db_path.with_suffix(".db.bak")
+            if not backup.exists():
+                rprint("[yellow]No backup found.[/yellow]")
+            else:
+                confirmed = questionary.confirm(
+                    f"Restore '{meta.name}' knowledge graph from backup? Current DB will be overwritten."
+                ).ask()
+                if confirmed:
+                    paths.db_path.unlink(missing_ok=True)
+                    shutil.copy2(backup, paths.db_path)
+                    rprint("[green]Knowledge graph restored from backup.[/green]")
         elif action == "Reset database (delete DB + embeddings)":
             confirmed = questionary.confirm(
                 f"Delete DB and embeddings for '{meta.name}'?"

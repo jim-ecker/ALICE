@@ -26,7 +26,8 @@ class ServiceState:
     llm: Any                # LLMBackend
     llm_cfg: Any            # LLMConfig
     embed_client: Any       # EmbeddingsClient
-    db: Any                 # kuzu.Database
+    db: Any                 # kuzu.Database (read-only for expert KG, read-write for standard chat)
+    conv_db: Any = None     # kuzu.Database for expert conversation history (separate writable DB)
     active_expert: str | None = None         # slug, or None = standard chat mode
     expert_name: str | None = None           # display name
     expert_persona: str | None = None        # personality prompt
@@ -65,8 +66,19 @@ class Chat:
 
     # ── Internal helpers ────────────────────────────────────────────────────
 
-    def _build_state(self, db_path: Path, embeddings_path: Path) -> ServiceState:
-        """Construct a ServiceState from the given DB and embeddings paths."""
+    def _build_state(
+        self,
+        db_path: Path,
+        embeddings_path: Path,
+        *,
+        read_only_kg: bool = False,
+    ) -> ServiceState:
+        """Construct a ServiceState from the given DB and embeddings paths.
+
+        Conversation history always goes in a sibling ``{stem}.conversations.db``
+        so ChatStore writes never dirty the KG buffer pool. In expert mode the KG
+        is also opened read-only, making it immune to corruption on process kill.
+        """
         from core.llm.config import resolve_config
         from core.llm.factory import create_backend
         from core.graph import KuzuStore
@@ -95,9 +107,12 @@ class Chat:
         if self._embed_client is None:
             self._embed_client = EmbeddingsClient(self._embed_cfg)
 
-        db = kuzu.Database(str(db_path), buffer_pool_size=_BUFFER_POOL_SIZE)
-        store = KuzuStore(db)
-        chat_store = ChatStore(db)
+        conversations_db_path = db_path.with_name(f"{db_path.stem}.conversations.db")
+        db = kuzu.Database(str(db_path), buffer_pool_size=_BUFFER_POOL_SIZE, read_only=read_only_kg)
+        conv_db = kuzu.Database(str(conversations_db_path))
+        chat_store = ChatStore(conv_db)
+
+        store = KuzuStore(db, read_only=read_only_kg)
         llm = create_backend(self._llm_cfg)
 
         if embeddings_path.exists():
@@ -137,6 +152,7 @@ class Chat:
             llm_cfg=self._llm_cfg,
             embed_client=self._embed_client,
             db=db,
+            conv_db=conv_db,
         )
 
     def _setup(self) -> None:
@@ -167,18 +183,25 @@ class Chat:
         self._state.llm_cfg = new_state.llm_cfg
         self._state.embed_client = new_state.embed_client
         self._state.db = new_state.db
+        self._state.conv_db = new_state.conv_db
         self._db = new_state.db
 
     # ── Public API ──────────────────────────────────────────────────────────
 
     def close(self) -> None:
-        """Close the current KuzuDB connection."""
+        """Close the current KuzuDB connection(s)."""
         if self._db is not None:
             try:
                 self._db.close()
             except Exception:
                 pass
             self._db = None
+        if self._state is not None and self._state.conv_db is not None:
+            try:
+                self._state.conv_db.close()
+            except Exception:
+                pass
+            self._state.conv_db = None
 
     def switch_to_chat(self) -> None:
         """Hot-swap back to the standard chat.db without restarting the server."""
@@ -187,6 +210,7 @@ class Chat:
         # Build new state BEFORE closing the current database so that concurrent
         # requests keep using a valid state during the index-load phase.
         old_db = self._db
+        old_conv_db = self._state.conv_db if self._state is not None else None
         new_state = self._build_state(db_path, emb_path)
         self._update_state_from(new_state)
         self._state.active_expert = None
@@ -198,11 +222,20 @@ class Chat:
                 old_db.close()
             except Exception:
                 pass
+        if old_conv_db is not None:
+            try:
+                old_conv_db.close()
+            except Exception:
+                pass
 
     def switch_expert(self, slug: str) -> None:
         """Hot-swap to a virtual expert's database without restarting the server.
 
         Raises FileNotFoundError if the expert metadata or database is missing.
+
+        The expert's KG database is opened read-only so the chat server can never
+        corrupt it on crash. Conversation history is stored in a sibling
+        ``{slug}.conversations.db`` that is opened read-write.
         """
         from services.experts.manager import ExpertRegistry
         from services.experts.paths import build_expert_paths
@@ -217,9 +250,12 @@ class Chat:
         if not db_path.exists():
             raise FileNotFoundError(f"Expert database not found: {db_path}")
         emb_path = paths.embeddings_path
+        if self._state is not None and self._state.active_expert == slug:
+            return
 
         old_db = self._db
-        new_state = self._build_state(db_path, emb_path)
+        old_conv_db = self._state.conv_db if self._state is not None else None
+        new_state = self._build_state(db_path, emb_path, read_only_kg=True)
         self._update_state_from(new_state)
         self._state.active_expert = slug
         self._state.expert_name = meta.name
@@ -228,6 +264,11 @@ class Chat:
         if old_db is not None:
             try:
                 old_db.close()
+            except Exception:
+                pass
+        if old_conv_db is not None:
+            try:
+                old_conv_db.close()
             except Exception:
                 pass
 
@@ -281,20 +322,22 @@ class Chat:
             download_workers=download_workers,
             chunk_workers=chunk_workers,
         )
-        result, new_index = ingest_svc.run(
-            query,
-            center=center,
-            max_docs=max_docs,
-            offset=offset,
-            dashboard_port=dashboard_port,
-            on_search_complete=on_search_complete,
-            on_download=on_download,
-            on_download_failed=on_download_failed,
-            on_downloads_complete=on_downloads_complete,
-            on_chunk=on_chunk,
-            on_extract_start=on_extract_start,
-            on_chunk_extracted=on_chunk_extracted,
-        )
+        from services.ingest.service import safe_db
+        with safe_db(db_path):
+            result, new_index = ingest_svc.run(
+                query,
+                center=center,
+                max_docs=max_docs,
+                offset=offset,
+                dashboard_port=dashboard_port,
+                on_search_complete=on_search_complete,
+                on_download=on_download,
+                on_download_failed=on_download_failed,
+                on_downloads_complete=on_downloads_complete,
+                on_chunk=on_chunk,
+                on_extract_start=on_extract_start,
+                on_chunk_extracted=on_chunk_extracted,
+            )
         if self._state is not None:
             self._state.retriever.update_index(new_index)
         return IngestResult(
@@ -328,13 +371,15 @@ class Chat:
             embeddings_path=emb_path,
             chunk_workers=chunk_workers,
         )
-        result, new_index = ingest_svc.ingest_local_files(
-            confirmed_docs,
-            dashboard_port=dashboard_port,
-            on_chunk=on_chunk,
-            on_extract_start=on_extract_start,
-            on_chunk_extracted=on_chunk_extracted,
-        )
+        from services.ingest.service import safe_db
+        with safe_db(db_path):
+            result, new_index = ingest_svc.ingest_local_files(
+                confirmed_docs,
+                dashboard_port=dashboard_port,
+                on_chunk=on_chunk,
+                on_extract_start=on_extract_start,
+                on_chunk_extracted=on_chunk_extracted,
+            )
         if self._state is not None:
             self._state.retriever.update_index(new_index)
         return IngestResult(
@@ -375,16 +420,18 @@ class Chat:
             downloads_dir=db_path.parent / "downloads",
             chunk_workers=1,
         )
-        result, new_index = ingest_svc.ingest_one(
-            record,
-            dashboard_port=dashboard_port,
-            on_search_complete=on_search_complete,
-            on_download=on_download,
-            on_downloads_complete=on_downloads_complete,
-            on_chunk=on_chunk,
-            on_extract_start=on_extract_start,
-            on_chunk_extracted=on_chunk_extracted,
-        )
+        from services.ingest.service import safe_db
+        with safe_db(db_path):
+            result, new_index = ingest_svc.ingest_one(
+                record,
+                dashboard_port=dashboard_port,
+                on_search_complete=on_search_complete,
+                on_download=on_download,
+                on_downloads_complete=on_downloads_complete,
+                on_chunk=on_chunk,
+                on_extract_start=on_extract_start,
+                on_chunk_extracted=on_chunk_extracted,
+            )
         if self._state is not None:
             self._state.retriever.update_index(new_index)
         return IngestResult(

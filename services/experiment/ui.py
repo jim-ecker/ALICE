@@ -255,6 +255,10 @@ textarea { resize: vertical; min-height: 64px; }
 }
 .resp-body strong { font-weight: 700; }
 .resp-body em { font-style: italic; color: var(--text2); }
+.resp-body table { border-collapse: collapse; width: 100%; font-size: .82rem; margin: .5em 0; }
+.resp-body th, .resp-body td { border: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+.resp-body th { background: var(--surface2); font-weight: 700; color: var(--accent); }
+.resp-body tr:nth-child(even) td { background: rgba(255,255,255,.02); }
 
 .resp-loading {
   display: flex;
@@ -732,10 +736,10 @@ function inlineFmt(t) {
 }
 
 function renderMd(raw) {
-  // Strip ALICE citation markers: (Fact3), (Fact_7), (Fact3, Fact7, Fact_20), etc.
+  // Strip ALICE citation markers: (Fact3), (Fact_7), hex IDs, etc.
   // Strip KB-miss disclaimer that reveals ALICE provenance
   let s = raw
-    .replace(/\(\s*Fact_?\d+(?:\s*,\s*Fact_?\d+)*\s*\)/g, '')
+    .replace(/\(\s*Fact_?[0-9a-f]+(?:\s*,\s*Fact_?[0-9a-f]+)*\s*\)/gi, '')
     .replace(/The knowledge graph does not contain[^\n]*/g, '')
     .replace(/The following answer is based on general knowledge[^\n]*/g, '')
     .replace(/\u26A0\uFE0F?/g, '')
@@ -748,14 +752,40 @@ function renderMd(raw) {
     .replace(/>/g, '&gt;');
 
   const lines = s.split('\n');
-  let html = '', inUl = false, inOl = false;
+  let html = '', inUl = false, inOl = false, inTable = false, tableHasBody = false;
 
   const closeList = () => {
     if (inUl) { html += '</ul>'; inUl = false; }
     if (inOl) { html += '</ol>'; inOl = false; }
   };
+  const closeTable = () => {
+    if (inTable) {
+      html += tableHasBody ? '</tbody>' : '</thead>';
+      html += '</table>';
+      inTable = false; tableHasBody = false;
+    }
+  };
 
   for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Table row: starts and ends with |
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      closeList();
+      const inner = trimmed.slice(1, -1).split('|');
+      // Separator row: every cell is only dashes/colons/spaces
+      if (inner.every(c => /^[\s\-:]+$/.test(c))) {
+        if (inTable && !tableHasBody) { html += '</thead><tbody>'; tableHasBody = true; }
+        continue;
+      }
+      if (!inTable) { html += '<table><thead>'; inTable = true; tableHasBody = false; }
+      const tag = tableHasBody ? 'td' : 'th';
+      html += '<tr>' + inner.map(c => `<${tag}>${inlineFmt(c.trim())}</${tag}>`).join('') + '</tr>';
+      continue;
+    }
+
+    closeTable();
+
     const hm = line.match(/^(#{1,4})\s+(.+)/);
     if (hm) { closeList(); html += `<h${hm[1].length}>${inlineFmt(hm[2])}</h${hm[1].length}>`; continue; }
 
@@ -766,10 +796,10 @@ function renderMd(raw) {
     if (om) { if (inUl) { html += '</ul>'; inUl = false; } if (!inOl) { html += '<ol>'; inOl = true; } html += `<li>${inlineFmt(om[1])}</li>`; continue; }
 
     closeList();
-    if (line.trim() === '') { html += ''; continue; }
+    if (trimmed === '') { html += ''; continue; }
     html += `<p>${inlineFmt(line)}</p>`;
   }
-  closeList();
+  closeList(); closeTable();
   return html;
 }
 

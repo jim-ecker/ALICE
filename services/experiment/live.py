@@ -4,8 +4,11 @@ Builds an isolated Retriever per expert without mutating the global ServiceState
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
+
+_CITATION_RE = re.compile(r'\s*\(Fact_[0-9a-f]{6}(?:,\s*Fact_[0-9a-f]{6})*\)')
 
 
 def query_expert(
@@ -73,8 +76,10 @@ def query_expert(
             expert_name=meta.name if meta else None,
             expert_persona=meta.personality if meta else None,
             expert_persona_strength=meta.personality_strength if meta else 1.0,
+            narrative_mode=True,
         )
-        return llm.chat(messages, cfg.max_tokens)
+        raw = llm.chat(messages, cfg.max_tokens)
+        return _CITATION_RE.sub('', raw).strip()
     finally:
         try:
             db.close()
