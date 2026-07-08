@@ -33,6 +33,12 @@ alice  = "services.chat.cli:root_app"
 mlx = [
     "mlx-lm>=0.21.0",
 ]
+trust = [
+    "transformers>=4.44",
+    "torch>=2.3",
+    "sentencepiece>=0.2.0",
+    "scikit-learn>=1.4",
+]
 
 [tool.uv]
 package = true

@@ -16,3 +16,29 @@ class MLXBackend(LLMBackend):
             messages, tokenize=False, add_generation_prompt=True
         )
         return generate(self._model, self._tokenizer, prompt=prompt, max_tokens=max_tokens, verbose=False)
+
+    def sample_n(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        n: int,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+    ) -> list[str]:
+        from mlx_lm import generate
+        from mlx_lm.sample_utils import make_sampler
+        prompt = self._tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+        sampler = make_sampler(temp=temperature)
+        return [
+            generate(
+                self._model,
+                self._tokenizer,
+                prompt=prompt,
+                max_tokens=max_tokens,
+                sampler=sampler,
+                verbose=False,
+            )
+            for _ in range(n)
+        ]

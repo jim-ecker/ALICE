@@ -435,10 +435,12 @@ class Ingest:
         """
         from core.graph import KuzuStore
         from core.llm.worker import extract_chunk, init_worker
+        from core.trust.config import load_trust_config
         from services.ingest.dashboard import advance_chunk, init_document, push_triple, start as start_dashboard
 
         if self._llm_cfg is None:
             raise ValueError("llm_cfg is required for extraction")
+        trust_cfg = load_trust_config()
         if min_certainty is not None:
             min_ingest_confidence = min_certainty
 
@@ -464,7 +466,7 @@ class Ingest:
             executor = ThreadPoolExecutor(
                 max_workers=self._llm_cfg.workers,
                 initializer=init_worker,
-                initargs=(self._llm_cfg,),
+                initargs=(self._llm_cfg, trust_cfg),
             )
             try:
                 future_to_chunk = {

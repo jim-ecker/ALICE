@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .ingest_confidence import clip_score, score_ingest_confidence
 from .base import LLMBackend
 from .ner import Entity
+
+if TYPE_CHECKING:
+    from core.trust.config import TrustConfig
 
 _SYSTEM = """\
 You are a knowledge graph extraction assistant. Given a passage of scientific or \
@@ -62,20 +66,40 @@ class EvaluatedTriple:
     entity_anchor_score: float
     evidence_scope_score: float
     confidence_version: str = "v2_evidence_hybrid"
+    # v3 measurable trust signals — None on legacy rows and when [trust] is disabled
+    ptrue_score: float | None = None
+    ptrue_method: str | None = None
+    ptrue_samples: int | None = None
+    nli_entailment_score: float | None = None
+    nli_contradiction_score: float | None = None
+    nli_model: str | None = None
+    self_consistency_freq: float | None = None
+    self_consistency_count: int | None = None
+    self_consistency_runs: int | None = None
 
 
-def generate_triples(chunk_id: str, content: str, backend: LLMBackend) -> list[EvaluatedTriple]:
-    # Single-pass extraction: one LLM call returns subject+type, relation, object+type,
-    # raw certainty, and supporting evidence text.
-    # Previously two calls (NER then relation extraction) — halves per-chunk LLM overhead.
-    messages = [
+def _build_messages(content: str) -> list[dict[str, str]]:
+    return [
         {"role": "system", "content": _SYSTEM},
         {"role": "user", "content": f"Extract all knowledge graph triples from the following text:\n\n{content}"},
     ]
+
+
+def generate_triples(
+    chunk_id: str,
+    content: str,
+    backend: LLMBackend,
+    trust_cfg: TrustConfig | None = None,
+) -> list[EvaluatedTriple]:
+    # Single-pass extraction: one LLM call returns subject+type, relation, object+type,
+    # raw certainty, and supporting evidence text.
+    # Previously two calls (NER then relation extraction) — halves per-chunk LLM overhead.
+    messages = _build_messages(content)
     response = backend.chat(messages, max_tokens=4096)
     raw = _parse_json(response)
 
     best_by_key: dict[tuple[str, str, str], EvaluatedTriple] = {}
+    sentence_by_key: dict[tuple[str, str, str], str] = {}
     for r in raw:
         subj = r.get("subject")
         subj_type = r.get("subject_type")
@@ -118,4 +142,74 @@ def generate_triples(chunk_id: str, content: str, backend: LLMBackend) -> list[E
         existing = best_by_key.get(key)
         if existing is None or candidate.certainty_score > existing.certainty_score:
             best_by_key[key] = candidate
-    return list(best_by_key.values())
+            sentence_by_key[key] = signals.sentence_text
+
+    triples = list(best_by_key.values())
+    if trust_cfg is not None and trust_cfg.enabled and triples:
+        _attach_trust_signals(
+            triples,
+            sentence_by_key=sentence_by_key,
+            messages=messages,
+            backend=backend,
+            trust_cfg=trust_cfg,
+        )
+    return triples
+
+
+def _attach_trust_signals(
+    triples: list[EvaluatedTriple],
+    *,
+    sentence_by_key: dict[tuple[str, str, str], str],
+    messages: list[dict[str, str]],
+    backend: LLMBackend,
+    trust_cfg: TrustConfig,
+) -> None:
+    from core.trust.consistency import canonical_key, count_across_runs
+    from core.trust.signals import compute_evidence_signals
+
+    # Self-consistency: k rerun extractions, parse-only (no scoring/dedup) —
+    # we just need which canonical triples reappear.
+    consistency = None
+    if trust_cfg.self_consistency_enabled and trust_cfg.self_consistency_k > 0:
+        reruns = backend.sample_n(
+            messages,
+            n=trust_cfg.self_consistency_k,
+            temperature=trust_cfg.self_consistency_temperature,
+            max_tokens=4096,
+        )
+        rerun_key_sets: list[set[tuple[str, str, str]]] = []
+        for rerun in reruns:
+            keys: set[tuple[str, str, str]] = set()
+            for row in _parse_json(rerun):
+                subj, rel, obj = row.get("subject"), row.get("relation"), row.get("object")
+                if subj and rel and obj:
+                    keys.add(canonical_key(str(subj), str(rel), str(obj)))
+            rerun_key_sets.append(keys)
+        base_keys = {
+            canonical_key(t.subject.name, t.relation, t.object_.name) for t in triples
+        }
+        consistency = count_across_runs(base_keys, rerun_key_sets)
+
+    for triple in triples:
+        key = (triple.subject.name, triple.relation, triple.object_.name)
+        evidence_sentence = sentence_by_key.get(key) or triple.evidence_text
+        signals = compute_evidence_signals(
+            backend,
+            subject=triple.subject.name,
+            relation=triple.relation,
+            object_=triple.object_.name,
+            evidence_sentence=evidence_sentence,
+            cfg=trust_cfg,
+        )
+        triple.ptrue_score = signals.ptrue_score
+        triple.ptrue_method = signals.ptrue_method
+        triple.ptrue_samples = signals.ptrue_samples
+        triple.nli_entailment_score = signals.nli_entailment_score
+        triple.nli_contradiction_score = signals.nli_contradiction_score
+        triple.nli_model = signals.nli_model
+        if consistency is not None:
+            result = consistency[canonical_key(triple.subject.name, triple.relation, triple.object_.name)]
+            triple.self_consistency_freq = result.freq
+            triple.self_consistency_count = result.count
+            triple.self_consistency_runs = result.runs
+        triple.confidence_version = "v3_signals"

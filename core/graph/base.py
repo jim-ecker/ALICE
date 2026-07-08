@@ -49,6 +49,15 @@ class GraphStore(ABC):
         entity_anchor_score: float | None = None,
         evidence_scope_score: float | None = None,
         confidence_version: str | None = None,
+        ptrue_score: float | None = None,
+        ptrue_method: str | None = None,
+        ptrue_samples: int | None = None,
+        nli_entailment_score: float | None = None,
+        nli_contradiction_score: float | None = None,
+        nli_model: str | None = None,
+        self_consistency_freq: float | None = None,
+        self_consistency_count: int | None = None,
+        self_consistency_runs: int | None = None,
     ) -> None: ...
 
     @abstractmethod

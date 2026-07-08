@@ -51,6 +51,25 @@ relevance_filter_top_k = 50
 [ingest]
 min_ingest_confidence = 0.6
 
+# Measurable trust signals (v3) — persisted per triple alongside the v2 score.
+# All signals are opt-in; with enabled = false ingest behaves exactly as before.
+# [trust]
+# enabled = true
+# ptrue_enabled = true              # LLM Yes/No verification per triple (logprobs when available)
+# ptrue_fallback_samples = 5        # votes when the backend exposes no logprobs (Ollama, MLX)
+# ptrue_vote_max_tokens = 256       # vote token budget — reasoning models need headroom before answering
+# nli_enabled = true                # local NLI entailment check — needs `uv sync --extra trust`
+# nli_model = "MoritzLaurer/DeBERTa-v3-base-mnli-fever-anli"
+# self_consistency_enabled = false  # k extra extraction runs per chunk — (k+1)x ingest cost
+# self_consistency_k = 3
+# self_consistency_temperature = 0.7
+# Calibration judge (scripts/mint_calibration_labels.py) — use a DIFFERENT model
+# than [llm] so the extractor isn't grading its own homework
+# judge_model = "llama3.3:70b"
+# judge_backend = "openai-compatible"   # or "anthropic" (set judge_api_key_env)
+# judge_base_url = "http://localhost:11434/v1"
+# judge_api_key_env = ""                # e.g. "ANTHROPIC_API_KEY"
+
 [chat]
 db_path = "services/chat/data/chat.db"
 # ingest_folder = "/path/to/your/pdf/folder"   # default folder for `alice chat ingest-folder`

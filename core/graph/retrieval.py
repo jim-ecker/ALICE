@@ -36,6 +36,15 @@ class RetrievedTriple:
     evidence_scope_score: float | None = None
     confidence_version: str | None = None
     fact_id: int | None = None
+    ptrue_score: float | None = None
+    ptrue_method: str | None = None
+    ptrue_samples: int | None = None
+    nli_entailment_score: float | None = None
+    nli_contradiction_score: float | None = None
+    nli_model: str | None = None
+    self_consistency_freq: float | None = None
+    self_consistency_count: int | None = None
+    self_consistency_runs: int | None = None
 
 
 @dataclass
@@ -330,7 +339,9 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
         RETURN e1.name, e1.type, r.relation, e2.name, e2.type, r.certainty_score, r.chunk_id,
                r.raw_certainty_score, r.evidence_text, r.evidence_char_start, r.evidence_char_end,
                r.evidence_alignment_score, r.entity_anchor_score, r.evidence_scope_score, r.confidence_version,
-               r.fact_id
+               r.fact_id, r.ptrue_score, r.ptrue_method, r.ptrue_samples, r.nli_entailment_score,
+               r.nli_contradiction_score, r.nli_model, r.self_consistency_freq, r.self_consistency_count,
+               r.self_consistency_runs
         """,
         parameters={"ids": chunk_ids},
     )
@@ -360,6 +371,15 @@ def retrieve_context(conn: kuzu.Connection, chunk_ids: list[str]) -> RetrievalRe
                 evidence_scope_score=float(row[13]) if row[13] is not None else None,
                 confidence_version=row[14] or None,
                 fact_id=int(row[15]) if row[15] is not None else None,
+                ptrue_score=float(row[16]) if row[16] is not None else None,
+                ptrue_method=row[17] or None,
+                ptrue_samples=int(row[18]) if row[18] is not None else None,
+                nli_entailment_score=float(row[19]) if row[19] is not None else None,
+                nli_contradiction_score=float(row[20]) if row[20] is not None else None,
+                nli_model=row[21] or None,
+                self_consistency_freq=float(row[22]) if row[22] is not None else None,
+                self_consistency_count=int(row[23]) if row[23] is not None else None,
+                self_consistency_runs=int(row[24]) if row[24] is not None else None,
             )
         )
 

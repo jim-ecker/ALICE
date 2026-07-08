@@ -58,7 +58,16 @@ _SCHEMA = [
         entity_anchor_score DOUBLE,
         evidence_scope_score DOUBLE,
         confidence_version STRING,
-        fact_id INT64
+        fact_id INT64,
+        ptrue_score DOUBLE,
+        ptrue_method STRING,
+        ptrue_samples INT64,
+        nli_entailment_score DOUBLE,
+        nli_contradiction_score DOUBLE,
+        nli_model STRING,
+        self_consistency_freq DOUBLE,
+        self_consistency_count INT64,
+        self_consistency_runs INT64
     )
     """,
 ]
@@ -121,6 +130,15 @@ class KuzuStore(GraphStore):
             "ALTER TABLE RELATES_TO ADD evidence_scope_score DOUBLE",
             "ALTER TABLE RELATES_TO ADD confidence_version STRING",
             "ALTER TABLE RELATES_TO ADD fact_id INT64",
+            "ALTER TABLE RELATES_TO ADD ptrue_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD ptrue_method STRING",
+            "ALTER TABLE RELATES_TO ADD ptrue_samples INT64",
+            "ALTER TABLE RELATES_TO ADD nli_entailment_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD nli_contradiction_score DOUBLE",
+            "ALTER TABLE RELATES_TO ADD nli_model STRING",
+            "ALTER TABLE RELATES_TO ADD self_consistency_freq DOUBLE",
+            "ALTER TABLE RELATES_TO ADD self_consistency_count INT64",
+            "ALTER TABLE RELATES_TO ADD self_consistency_runs INT64",
         ]
         for statement in rel_migrations:
             try:
@@ -374,6 +392,15 @@ class KuzuStore(GraphStore):
         entity_anchor_score: float | None = None,
         evidence_scope_score: float | None = None,
         confidence_version: str | None = None,
+        ptrue_score: float | None = None,
+        ptrue_method: str | None = None,
+        ptrue_samples: int | None = None,
+        nli_entailment_score: float | None = None,
+        nli_contradiction_score: float | None = None,
+        nli_model: str | None = None,
+        self_consistency_freq: float | None = None,
+        self_consistency_count: int | None = None,
+        self_consistency_runs: int | None = None,
     ) -> None:
         self._conn.execute(
             "MERGE (e:Entity {name: $name}) SET e.type = $type",
@@ -398,7 +425,16 @@ class KuzuStore(GraphStore):
                 entity_anchor_score: $entity_anchor_score,
                 evidence_scope_score: $evidence_scope_score,
                 confidence_version: $confidence_version,
-                fact_id: $fact_id
+                fact_id: $fact_id,
+                ptrue_score: $ptrue_score,
+                ptrue_method: $ptrue_method,
+                ptrue_samples: $ptrue_samples,
+                nli_entailment_score: $nli_entailment_score,
+                nli_contradiction_score: $nli_contradiction_score,
+                nli_model: $nli_model,
+                self_consistency_freq: $self_consistency_freq,
+                self_consistency_count: $self_consistency_count,
+                self_consistency_runs: $self_consistency_runs
             }]->(o)
             """,
             parameters={
@@ -415,6 +451,15 @@ class KuzuStore(GraphStore):
                 "entity_anchor_score": entity_anchor_score,
                 "evidence_scope_score": evidence_scope_score,
                 "confidence_version": confidence_version,
+                "ptrue_score": ptrue_score,
+                "ptrue_method": ptrue_method,
+                "ptrue_samples": ptrue_samples,
+                "nli_entailment_score": nli_entailment_score,
+                "nli_contradiction_score": nli_contradiction_score,
+                "nli_model": nli_model,
+                "self_consistency_freq": self_consistency_freq,
+                "self_consistency_count": self_consistency_count,
+                "self_consistency_runs": self_consistency_runs,
                 "fact_id": int.from_bytes(
                     hashlib.sha256(
                         f"{subject}\x00{relation}\x00{object_}\x00{chunk_id}".encode()
@@ -457,6 +502,15 @@ class KuzuStore(GraphStore):
                     entity_anchor_score=triple.entity_anchor_score,
                     evidence_scope_score=triple.evidence_scope_score,
                     confidence_version=triple.confidence_version,
+                    ptrue_score=getattr(triple, "ptrue_score", None),
+                    ptrue_method=getattr(triple, "ptrue_method", None),
+                    ptrue_samples=getattr(triple, "ptrue_samples", None),
+                    nli_entailment_score=getattr(triple, "nli_entailment_score", None),
+                    nli_contradiction_score=getattr(triple, "nli_contradiction_score", None),
+                    nli_model=getattr(triple, "nli_model", None),
+                    self_consistency_freq=getattr(triple, "self_consistency_freq", None),
+                    self_consistency_count=getattr(triple, "self_consistency_count", None),
+                    self_consistency_runs=getattr(triple, "self_consistency_runs", None),
                 )
             self._conn.execute(
                 "MATCH (c:Chunk {id: $chunk_id}) SET c.extracted_at = $ts",
@@ -485,6 +539,15 @@ class KuzuStore(GraphStore):
         entity_anchor_score: float | None = None,
         evidence_scope_score: float | None = None,
         confidence_version: str | None = None,
+        ptrue_score: float | None = None,
+        ptrue_method: str | None = None,
+        ptrue_samples: int | None = None,
+        nli_entailment_score: float | None = None,
+        nli_contradiction_score: float | None = None,
+        nli_model: str | None = None,
+        self_consistency_freq: float | None = None,
+        self_consistency_count: int | None = None,
+        self_consistency_runs: int | None = None,
     ) -> None:
         self._write_triple(
             subject=subject,
@@ -502,4 +565,13 @@ class KuzuStore(GraphStore):
             entity_anchor_score=entity_anchor_score,
             evidence_scope_score=evidence_scope_score,
             confidence_version=confidence_version,
+            ptrue_score=ptrue_score,
+            ptrue_method=ptrue_method,
+            ptrue_samples=ptrue_samples,
+            nli_entailment_score=nli_entailment_score,
+            nli_contradiction_score=nli_contradiction_score,
+            nli_model=nli_model,
+            self_consistency_freq=self_consistency_freq,
+            self_consistency_count=self_consistency_count,
+            self_consistency_runs=self_consistency_runs,
         )

@@ -33,6 +33,7 @@ class IngestConfidenceSignals:
     evidence_scope_score: float
     raw_certainty_score: float
     confidence_version: str = "v2_evidence_hybrid"
+    sentence_text: str = ""
 
 
 def clip_score(value: float | int | None) -> float:
@@ -94,6 +95,7 @@ def score_ingest_confidence(
         entity_anchor_score=entity_anchor_score,
         evidence_scope_score=scope_score,
         raw_certainty_score=raw_score,
+        sentence_text=alignment.sentence_text,
     )
 
 
@@ -174,6 +176,13 @@ def _find_normalized_matches(text: str, target: str) -> list[tuple[int, int]]:
         matches.append((orig_start, orig_end))
         start = idx + 1
     return matches
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase + whitespace-collapse — the shared canonical form for matching
+    entity/relation strings across extraction runs."""
+    normalized, _ = _normalize_with_map(text)
+    return normalized
 
 
 def _normalize_with_map(text: str) -> tuple[str, list[int]]:
